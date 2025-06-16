@@ -65,9 +65,6 @@ typedef enum {
 /* Params */
 
 typedef struct {
-    uint64_t            vol_modes;
-    uint64_t            mfk_modes;
-
     /* LCD */
 
     int16_t             brightness_normal;
@@ -77,15 +74,12 @@ typedef struct {
 
     /* radio */
 
-    int16_t             band_id;
     x6100_mic_sel_t     mic;
     uint8_t             hmic;
     uint8_t             imic;
-    radio_charger_t     charger;
+    params_uint8_t      charger;
     uint16_t            bias_drive;
     uint16_t            bias_final;
-    int16_t             rit;
-    int16_t             xit;
     uint8_t             line_in;
     uint8_t             line_out;
     int16_t             moni;
@@ -101,15 +95,11 @@ typedef struct {
 
     /* main screen */
 
-    int16_t             spectrum_beta;
-    bool                spectrum_peak;
-    uint16_t            spectrum_peak_hold;
-    float               spectrum_peak_speed;
-    bool                spectrum_filled;
-    params_bool_t       spectrum_auto_min;
-    params_bool_t       spectrum_auto_max;
-    params_bool_t       waterfall_auto_min;
-    params_bool_t       waterfall_auto_max;
+    params_uint8_t      spectrum_beta;
+    params_bool_t       spectrum_peak;
+    params_uint8_t      spectrum_peak_hold;
+    params_uint8_t      spectrum_peak_speed;
+    params_bool_t       spectrum_filled;
     params_bool_t       waterfall_smooth_scroll;
     params_bool_t       waterfall_center_line;
     params_bool_t       waterfall_zoom;
@@ -194,13 +184,9 @@ typedef struct {
         bool    brightness_timeout;
         bool    brightness_buttons;
 
-        bool    band;
         bool    mic;
         bool    hmic;
         bool    imic;
-        bool    charger;
-        bool    rit;
-        bool    xit;
         bool    line_in;
         bool    line_out;
         bool    moni;
@@ -210,11 +196,6 @@ typedef struct {
         bool    vox_delay;
         bool    vox_gain;
 
-        bool    spectrum_beta;
-        bool    spectrum_peak;
-        bool    spectrum_peak_hold;
-        bool    spectrum_peak_speed;
-        bool    spectrum_filled;
         bool    clock_view;
         bool    clock_time_timeout;
         bool    clock_power_timeout;
@@ -227,10 +208,6 @@ typedef struct {
         bool    rtty_shift;
         bool    rtty_rate;
         bool    rtty_reverse;
-
-        bool    ft8_show_all;
-        bool    ft8_protocol;
-        bool    ft8_band;
 
         bool    long_gen;
         bool    long_app;
@@ -264,8 +241,6 @@ void params_msg_cw_load();
 void params_msg_cw_new(const char *val);
 void params_msg_cw_edit(uint32_t id, const char *val);
 void params_msg_cw_delete(uint32_t id);
-
-char *params_charger_str_get(radio_charger_t val);
 
 char *params_mic_str_get(x6100_mic_sel_t val);
 

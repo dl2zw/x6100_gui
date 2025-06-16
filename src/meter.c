@@ -21,7 +21,7 @@ static int16_t          min_db = S1;
 static int16_t          max_db = S9_40;
 
 static int16_t          meter_db = S1;
-static int16_t          meter_db_raw = S1;
+static float            meter_db_raw = S1;
 static float            noise_level = S_MIN;
 
 static int16_t          meter_peak = S1;
@@ -164,15 +164,22 @@ lv_obj_t * meter_init(lv_obj_t * parent) {
     return obj;
 }
 
-void meter_update(int16_t db, float beta) {
-    noise_level = spectrum_get_min();
+void meter_set_noise(float val) {
+    noise_level = val;
     if (att) {
-        db += 14;
         noise_level+= 14.0f;
     }
     if (pre){
-        db -= 14;
         noise_level -= 14.0f;
+    }
+}
+
+void meter_update(float db, float beta) {
+    if (att) {
+        db += 14.0f;
+    }
+    if (pre){
+        db -= 14.0f;
     }
     if (db < min_db) {
         db = min_db;

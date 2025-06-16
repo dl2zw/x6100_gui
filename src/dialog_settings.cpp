@@ -9,6 +9,7 @@
 #include "dialog_settings.h"
 
 #include "voice.h"
+#include "dsp.h"
 
 extern "C" {
 
@@ -22,6 +23,7 @@ extern "C" {
     #include "keyboard.h"
     #include "clock.h"
     #include "audio.h"
+    #include "meter.h"
 
     #include "lvgl/lvgl.h"
     #include <sys/time.h>
@@ -35,8 +37,6 @@ extern "C" {
 
 }
 
-static lv_obj_t     *grid;
-
 #define SMALL_PAD   5
 
 #define SMALL_1     57
@@ -48,9 +48,23 @@ static lv_obj_t     *grid;
 
 #define SMALL_WIDTH 57
 
+static void make_general_page();
+static void make_ui_page();
+static void make_voice_page();
+
+static void load_general_page(button_item_t *item);
+static void load_ui_page(button_item_t *item);
+static void load_voice_page(button_item_t *item);
+
+static void construct_cb(lv_obj_t *parent);
+static void destruct_cb();
+static void key_cb(lv_event_t * e);
+
+static lv_obj_t     *grid;
 static lv_coord_t   col_dsc[] = { 740 - (SMALL_1 + SMALL_PAD) * 6, SMALL_1, SMALL_1, SMALL_1, SMALL_1, SMALL_1, SMALL_1, LV_GRID_TEMPLATE_LAST };
 static lv_coord_t   row_dsc[64] = { 1 };
 
+static bool         datetime_changed;
 static time_t       now;
 struct tm           ts;
 
@@ -61,18 +75,68 @@ static lv_obj_t     *hour;
 static lv_obj_t     *min;
 static lv_obj_t     *sec;
 
-static void construct_cb(lv_obj_t *parent);
-static void key_cb(lv_event_t * e);
+static button_item_t btn_general = {
+    .type  = BTN_TEXT,
+    .label = "General",
+    .press = load_general_page,
+};
+
+static button_item_t btn_ui = {
+    .type  = BTN_TEXT,
+    .label = "Interface",
+    .press = load_ui_page,
+};
+
+static button_item_t btn_voice = {
+    .type  = BTN_TEXT,
+    .label = "Voice",
+    .press = load_voice_page,
+};
+
+buttons_page_t btn_page = {
+    {
+     &btn_general,
+     &btn_ui,
+     &btn_voice,
+     }
+};
 
 static dialog_t     dialog = {
     .construct_cb = construct_cb,
-    .destruct_cb = NULL,
+    .destruct_cb = destruct_cb,
     .audio_cb = NULL,
+    .btn_page = &btn_page,
     .key_cb = key_cb,
     .run = false,
 };
 
 dialog_t            *dialog_settings = &dialog;
+
+static ObserverDelayed *output_gain_observer;
+
+static void load_general_page(button_item_t *item) {
+    make_general_page();
+    for (auto &&btn : btn_page.items) {
+        buttons_mark(btn, false);
+    }
+    buttons_mark(item, true);
+}
+
+static void load_ui_page(button_item_t *item) {
+    make_ui_page();
+    for (auto &&btn : btn_page.items) {
+        buttons_mark(btn, false);
+    }
+    buttons_mark(item, true);
+}
+
+static void load_voice_page(button_item_t *item) {
+    make_voice_page();
+    for (auto &&btn : btn_page.items) {
+        buttons_mark(btn, false);
+    }
+    buttons_mark(item, true);
+}
 
 /* Shared update */
 
@@ -83,11 +147,22 @@ static void bool_update_cb(lv_event_t * e) {
     params_bool_set(var, lv_obj_has_state(obj, LV_STATE_CHECKED));
 }
 
+static void bool_update_subj_cb(lv_event_t *e) {
+    lv_obj_t *obj  = lv_event_get_target(e);
+    Subject  *subj = (Subject *)lv_event_get_user_data(e);
+
+    subject_set_int(subj, lv_obj_has_state(obj, LV_STATE_CHECKED));
+}
+
 static void uint8_spinbox_update_cb(lv_event_t * e) {
     lv_obj_t        *obj = lv_event_get_target(e);
     params_uint8_t  *var = (params_uint8_t*)lv_event_get_user_data(e);
 
     params_uint8_set(var, lv_spinbox_get_value(obj));
+    void(*update_cb)(void) = (void(*)(void))lv_obj_get_user_data(obj);
+    if (update_cb) {
+        update_cb();
+    }
 }
 
 static void uint8_dropdown_update_cb(lv_event_t * e) {
@@ -106,29 +181,44 @@ static void theme_update_cb(lv_event_t * e) {
 }
 
 /* Shared create */
-
-static lv_obj_t * switch_bool(lv_obj_t *parent, params_bool_t *var) {
+static lv_obj_t * create_switch(lv_obj_t *parent){
     lv_obj_t *obj = lv_switch_create(parent);
-
     dialog_item(&dialog, obj);
-
     lv_obj_center(obj);
-    lv_obj_add_event_cb(obj, bool_update_cb, LV_EVENT_VALUE_CHANGED, var);
-
-    if (var->x) {
-        lv_obj_add_state(obj, LV_STATE_CHECKED);
-    }
-
     return obj;
 }
 
-static lv_obj_t * spinbox_uint8(lv_obj_t *parent, params_uint8_t *var) {
+static lv_obj_t * switch_bool(lv_obj_t *parent, params_bool_t *var) {
+    lv_obj_t *obj = create_switch(parent);
+    lv_obj_add_event_cb(obj, bool_update_cb, LV_EVENT_VALUE_CHANGED, var);
+    if (var->x) {
+        lv_obj_add_state(obj, LV_STATE_CHECKED);
+    }
+    return obj;
+}
+
+static lv_obj_t * switch_bool(lv_obj_t *parent, Subject *subj) {
+    lv_obj_t *obj = create_switch(parent);
+    lv_obj_add_event_cb(obj, bool_update_subj_cb, LV_EVENT_VALUE_CHANGED, subj);
+
+    if (subject_get_int(subj)) {
+        lv_obj_add_state(obj, LV_STATE_CHECKED);
+    }
+    return obj;
+}
+
+static lv_obj_t * spinbox_uint8(lv_obj_t *parent, params_uint8_t *var, void(*update_cb)(void)=nullptr) {
     lv_obj_t *obj = lv_spinbox_create(parent);
 
     dialog_item(&dialog, obj);
 
     lv_spinbox_set_value(obj, var->x);
     lv_spinbox_set_range(obj, var->min, var->max);
+
+    if (update_cb) {
+        lv_obj_set_user_data(obj, (void*)update_cb);
+    }
+
     lv_obj_add_event_cb(obj, uint8_spinbox_update_cb, LV_EVENT_VALUE_CHANGED, var);
 
     return obj;
@@ -152,8 +242,9 @@ static lv_obj_t * dropdown_uint8(lv_obj_t *parent, params_uint8_t *var, const ch
     return obj;
 }
 
-template <typename T> void slider_with_text(lv_obj_t *cell, T val, T min, T max, T step, size_t width, const char *fmt,
-                             lv_event_cb_t event_cb, void * cb_user_data=nullptr) {
+template <typename T>
+lv_obj_t *slider_with_text(lv_obj_t *cell, T val, T min, T max, T step, size_t width, const char *fmt,
+                           lv_event_cb_t event_cb, void *cb_user_data = nullptr) {
     lv_obj_t *obj;
     obj = lv_slider_create(cell);
 
@@ -174,6 +265,24 @@ template <typename T> void slider_with_text(lv_obj_t *cell, T val, T min, T max,
     lv_obj_set_user_data(obj, slider_label);
 
     lv_obj_add_event_cb(obj, event_cb, LV_EVENT_VALUE_CHANGED, cb_user_data);
+    return obj;
+}
+
+/**
+ * Update bg opacity for some UI elements to preview changes
+ */
+static void change_bg_opa_cb(lv_event_t * e) {
+    lv_obj_t * obj = lv_event_get_target(e);
+    lv_event_code_t code = lv_event_get_code(e);
+
+    if (
+        (lv_obj_check_type(obj, &lv_slider_class) | lv_obj_check_type(obj, &lv_spinbox_class) & lv_obj_has_state(obj, LV_STATE_EDITED)) |
+        (lv_obj_check_type(obj, &lv_switch_class) & (code == LV_EVENT_FOCUSED))
+    ) {
+        lv_obj_set_style_bg_img_opa(dialog.obj, LV_OPA_60, 0);
+    } else {
+        lv_obj_set_style_bg_img_opa(dialog.obj, LV_OPA_COVER, 0);
+    }
 }
 
 /* Datetime */
@@ -185,6 +294,8 @@ static void datetime_update_cb(lv_event_t * e) {
     ts.tm_hour = lv_spinbox_get_value(hour);
     ts.tm_min = lv_spinbox_get_value(min);
     ts.tm_sec = lv_spinbox_get_value(sec);
+
+    datetime_changed = true;
 
     /* Set system */
 
@@ -204,7 +315,7 @@ static void datetime_update_cb(lv_event_t * e) {
 
 static void datetime_set_rtc_cb(lv_event_t * e) {
     lv_obj_t * obj = lv_event_get_target(e);
-    if (!lv_group_get_editing((const lv_group_t*)lv_obj_get_group(obj)))
+    if (!lv_obj_has_state(obj, LV_STATE_EDITED) && datetime_changed)
     {
         /* Set RTC */
 
@@ -221,6 +332,7 @@ static void datetime_set_rtc_cb(lv_event_t * e) {
         } else {
             LV_LOG_ERROR("Can't open /dev/rtc1: %s\n", strerror(errno));
         }
+        datetime_changed = false;
     }
 
 }
@@ -230,8 +342,6 @@ static uint8_t make_date(uint8_t row) {
     uint8_t     col = 0;
 
     /* Label */
-
-    row_dsc[row] = 54;
 
     obj = lv_label_create(grid);
 
@@ -297,8 +407,6 @@ static uint8_t make_time(uint8_t row) {
     uint8_t     col = 0;
 
     /* Label */
-
-    row_dsc[row] = 54;
 
     obj = lv_label_create(grid);
 
@@ -397,8 +505,6 @@ static uint8_t make_backlight(uint8_t row) {
 
     /* Label */
 
-    row_dsc[row] = 54;
-
     obj = lv_label_create(grid);
 
     lv_label_set_text(obj, "Timeout, Brightness");
@@ -443,8 +549,6 @@ static uint8_t make_backlight(uint8_t row) {
     lv_obj_add_event_cb(obj, backlight_brightness_update_cb, LV_EVENT_VALUE_CHANGED, NULL);
 
     row++;
-    row_dsc[row] = 54;
-
     obj = lv_label_create(grid);
 
     lv_label_set_text(obj, "Buttons brightness");
@@ -485,8 +589,6 @@ static uint8_t make_line_gain(uint8_t row) {
     lv_obj_t    *obj;
     lv_obj_t    *cell;
 
-    row_dsc[row] = 54;
-
     cell = lv_label_create(grid);
 
     lv_label_set_text(cell, "Line-in, Line-out");
@@ -520,8 +622,6 @@ static uint8_t make_line_gain(uint8_t row) {
 static uint8_t make_mag(uint8_t row) {
     lv_obj_t    *obj;
     uint8_t     col = 0;
-
-    row_dsc[row] = 54;
 
     obj = lv_label_create(grid);
 
@@ -603,8 +703,6 @@ static uint8_t make_clock(uint8_t row) {
     lv_obj_t    *obj;
     uint8_t     col = 0;
 
-    row_dsc[row] = 54;
-
     obj = lv_label_create(grid);
 
     lv_label_set_text(obj, "Clock view");
@@ -629,8 +727,6 @@ static uint8_t make_clock(uint8_t row) {
     /* * */
 
     row++;
-    row_dsc[row] = 54;
-
     obj = lv_label_create(grid);
 
     lv_label_set_text(obj, "Timeout Clock, Power, TX");
@@ -754,7 +850,6 @@ static uint8_t make_long_action(uint8_t row) {
     lv_obj_t    *obj;
 
     for (uint8_t i = 0; i < 6; i++) {
-        row_dsc[row] = 54;
 
         obj = lv_label_create(grid);
 
@@ -870,7 +965,6 @@ static uint8_t make_hmic_action(uint8_t row) {
     lv_obj_t    *obj;
 
     for (uint8_t i = 0; i < items_len; i++) {
-        row_dsc[row] = 54;
 
         obj = lv_label_create(grid);
 
@@ -944,8 +1038,6 @@ static uint8_t make_audio_gain(uint8_t row) {
     lv_obj_t    *obj;
     lv_obj_t    *cell;
 
-    row_dsc[row] = 54;
-
     cell = lv_label_create(grid);
 
     lv_label_set_text(cell, "Play,Rec gain");
@@ -1000,8 +1092,6 @@ static uint8_t make_transverter(uint8_t row, uint8_t n) {
     cfg_transverter_t   *transverter = &cfg_transverters[n];
 
     /* Label */
-
-    row_dsc[row] = 54;
 
     obj = lv_label_create(grid);
 
@@ -1062,8 +1152,6 @@ static uint8_t make_voice(uint8_t row) {
     lv_obj_t    *obj;
     uint8_t     col = 0;
 
-    row_dsc[row] = 54;
-
     obj = lv_label_create(grid);
 
     lv_label_set_text(obj, "Voice mode");
@@ -1078,8 +1166,6 @@ static uint8_t make_voice(uint8_t row) {
     /* * */
 
     row++;
-    row_dsc[row] = 54;
-
     obj = lv_label_create(grid);
 
     lv_label_set_text(obj, "Voice rate, pitch, volume");
@@ -1110,19 +1196,141 @@ static uint8_t make_voice(uint8_t row) {
     return row + 1;
 }
 
+static uint8_t make_voice_lang(uint8_t row) {
+    lv_obj_t    *obj;
+    uint8_t     col = 0;
+
+    obj = lv_label_create(grid);
+
+    lv_label_set_text(obj, "Voice type");
+    lv_obj_set_grid_cell(obj, LV_GRID_ALIGN_START, col++, 1, LV_GRID_ALIGN_CENTER, row, 1);
+
+    std::string options = "";
+    for (auto &&item : voice_item) {
+        options += " " + std::string(item.label) + " \n";
+    }
+    options[options.size() - 1] = '\0';
+
+    obj = dropdown_uint8(grid, &params.voice_lang, options.c_str());
+
+    lv_obj_set_size(obj, SMALL_6, 56);
+    lv_obj_set_grid_cell(obj, LV_GRID_ALIGN_START, 1, 6, LV_GRID_ALIGN_CENTER, row, 1);
+    lv_obj_center(obj);
+
+    return row + 1;
+}
+
 /* Spectrum and waterfall auto */
 
-static uint8_t make_auto(uint8_t row) {
+#define AUTO_LEVEL_STEP 0.2f
+
+static void auto_level_offset_update_cb(lv_event_t * e) {
+    lv_obj_t *obj = lv_event_get_target(e);
+    float val = lv_slider_get_value(obj) * AUTO_LEVEL_STEP;
+
+    lv_obj_t *slider_label = (lv_obj_t *)lv_obj_get_user_data(obj);
+    char *fmt = (char *)lv_obj_get_user_data(slider_label);
+    lv_label_set_text_fmt(slider_label, fmt, val);
+    Subject *subj = (Subject *)lv_event_get_user_data(e);
+    subject_set_float(subj, val);
+}
+
+static uint8_t make_auto_levels(uint8_t row) {
+    lv_obj_t *obj;
+
+    obj = lv_label_create(grid);
+
+    lv_label_set_text(obj, "Spectrum auto, offset");
+    lv_obj_set_grid_cell(obj, LV_GRID_ALIGN_START, 0, 1, LV_GRID_ALIGN_CENTER, row, 1);
+
+    /* On/off */
+    obj = lv_obj_create(grid);
+    lv_obj_set_size(obj, SMALL_3, 56);
+    lv_obj_set_grid_cell(obj, LV_GRID_ALIGN_START, 1, 3, LV_GRID_ALIGN_CENTER, row, 1);
+    lv_obj_set_style_bg_opa(obj, LV_OPA_TRANSP, LV_PART_MAIN);
+    lv_obj_clear_flag(obj, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_center(obj);
+    obj = switch_bool(obj, cfg.auto_level_enabled.val);
+    lv_obj_set_width(obj, SMALL_3 - 30);
+
+    /* Offset */
+    obj = lv_obj_create(grid);
+    lv_obj_set_size(obj, SMALL_3, 56);
+    lv_obj_set_grid_cell(obj, LV_GRID_ALIGN_START, 4, 3, LV_GRID_ALIGN_CENTER, row, 1);
+    lv_obj_set_style_bg_opa(obj, LV_OPA_TRANSP, LV_PART_MAIN);
+    lv_obj_clear_flag(obj, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_center(obj);
+    obj = slider_with_text(obj, subject_get_float(cfg.auto_level_offset.val), -15.0f, 15.0f, AUTO_LEVEL_STEP,
+                           SMALL_3 - 120, "%0.1f", auto_level_offset_update_cb, (void *)cfg.auto_level_offset.val);
+    lv_obj_add_event_cb(obj, change_bg_opa_cb, LV_EVENT_FOCUSED, NULL);
+    lv_obj_add_event_cb(obj, change_bg_opa_cb, LV_EVENT_DEFOCUSED, NULL);
+
+    return row + 1;
+}
+
+/* Spectrum  min, max (when no auto)*/
+
+static void spectrum_min_max_update_cb(lv_event_t *e) {
+    lv_obj_t *obj = lv_event_get_target(e);
+    int       val = lv_slider_get_value(obj);
+
+    lv_obj_t *slider_label = (lv_obj_t *)lv_obj_get_user_data(obj);
+    char     *fmt          = (char *)lv_obj_get_user_data(slider_label);
+    lv_label_set_text_fmt(slider_label, fmt, val);
+    Subject *subj = (Subject *)lv_event_get_user_data(e);
+    subject_set_int(subj, val);
+}
+
+uint8_t make_spectrum_min_max(uint8_t row) {
+    lv_obj_t *obj;
+    lv_obj_t *cell;
+
+    cell = lv_label_create(grid);
+
+    lv_label_set_text(cell, "Spectrum man min, max");
+    lv_obj_set_grid_cell(cell, LV_GRID_ALIGN_START, 0, 1, LV_GRID_ALIGN_CENTER, row, 1);
+
+    cell = lv_obj_create(grid);
+
+    lv_obj_set_size(cell, SMALL_3, 56);
+    lv_obj_set_grid_cell(cell, LV_GRID_ALIGN_START, 1, 3, LV_GRID_ALIGN_CENTER, row, 1);
+    lv_obj_set_style_bg_opa(cell, LV_OPA_TRANSP, LV_PART_MAIN);
+    lv_obj_clear_flag(cell, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_center(cell);
+
+    obj = slider_with_text(cell, subject_get_int(cfg_cur.band->grid.min.val), S_MIN, S7, 1, SMALL_3 - 120, "%d",
+                           spectrum_min_max_update_cb, (void *)cfg_cur.band->grid.min.val);
+
+    lv_obj_add_event_cb(obj, change_bg_opa_cb, LV_EVENT_FOCUSED, NULL);
+    lv_obj_add_event_cb(obj, change_bg_opa_cb, LV_EVENT_DEFOCUSED, NULL);
+
+    cell = lv_obj_create(grid);
+
+    lv_obj_set_size(cell, SMALL_3, 56);
+    lv_obj_set_grid_cell(cell, LV_GRID_ALIGN_START, 4, 3, LV_GRID_ALIGN_CENTER, row, 1);
+    lv_obj_set_style_bg_opa(cell, LV_OPA_TRANSP, LV_PART_MAIN);
+    lv_obj_clear_flag(cell, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_center(cell);
+
+    obj = slider_with_text(cell, subject_get_int(cfg_cur.band->grid.max.val), S8, S9_40, 1, SMALL_3 - 120, "%d",
+                           spectrum_min_max_update_cb, (void *)cfg_cur.band->grid.max.val);
+
+    lv_obj_add_event_cb(obj, change_bg_opa_cb, LV_EVENT_FOCUSED, NULL);
+    lv_obj_add_event_cb(obj, change_bg_opa_cb, LV_EVENT_DEFOCUSED, NULL);
+
+    return row + 1;
+}
+
+/* Spectrum fill, peaks */
+
+uint8_t make_spectrum_fill_peak(uint8_t row) {
     lv_obj_t    *obj;
-
-    row_dsc[row] = 54;
-
-    /* Spectrum */
+    uint8_t     col = 0;
 
     obj = lv_label_create(grid);
 
-    lv_label_set_text(obj, "Spectrum auto min, max");
-    lv_obj_set_grid_cell(obj, LV_GRID_ALIGN_START, 0, 1, LV_GRID_ALIGN_CENTER, row, 1);
+    lv_label_set_text(obj, "Spectrum fill, peaks");
+    lv_obj_set_grid_cell(obj, LV_GRID_ALIGN_START, col++, 1, LV_GRID_ALIGN_CENTER, row, 1);
 
     obj = lv_obj_create(grid);
 
@@ -1132,8 +1340,9 @@ static uint8_t make_auto(uint8_t row) {
     lv_obj_clear_flag(obj, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_center(obj);
 
-    obj = switch_bool(obj, &params.spectrum_auto_min);
-
+    obj = switch_bool(obj, &params.spectrum_filled);
+    lv_obj_add_event_cb(obj, change_bg_opa_cb, LV_EVENT_FOCUSED, NULL);
+    lv_obj_add_event_cb(obj, change_bg_opa_cb, LV_EVENT_DEFOCUSED, NULL);
     lv_obj_set_width(obj, SMALL_3 - 30);
 
     obj = lv_obj_create(grid);
@@ -1144,52 +1353,65 @@ static uint8_t make_auto(uint8_t row) {
     lv_obj_clear_flag(obj, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_center(obj);
 
-    obj = switch_bool(obj, &params.spectrum_auto_max);
-
-    lv_obj_set_width(obj, SMALL_3 - 30);
-
-    /* Waterfall */
-
-    row++;
-    row_dsc[row] = 54;
-
-    obj = lv_label_create(grid);
-
-    lv_label_set_text(obj, "Waterfall auto min, max");
-    lv_obj_set_grid_cell(obj, LV_GRID_ALIGN_START, 0, 1, LV_GRID_ALIGN_CENTER, row, 1);
-
-    obj = lv_obj_create(grid);
-
-    lv_obj_set_size(obj, SMALL_3, 56);
-    lv_obj_set_grid_cell(obj, LV_GRID_ALIGN_START, 1, 3, LV_GRID_ALIGN_CENTER, row, 1);
-    lv_obj_set_style_bg_opa(obj, LV_OPA_TRANSP, LV_PART_MAIN);
-    lv_obj_clear_flag(obj, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_center(obj);
-
-    obj = switch_bool(obj, &params.waterfall_auto_min);
-
-    lv_obj_set_width(obj, SMALL_3 - 30);
-
-    obj = lv_obj_create(grid);
-
-    lv_obj_set_size(obj, SMALL_3, 56);
-    lv_obj_set_grid_cell(obj, LV_GRID_ALIGN_START, 4, 3, LV_GRID_ALIGN_CENTER, row, 1);
-    lv_obj_set_style_bg_opa(obj, LV_OPA_TRANSP, LV_PART_MAIN);
-    lv_obj_clear_flag(obj, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_center(obj);
-
-    obj = switch_bool(obj, &params.waterfall_auto_max);
-
+    obj = switch_bool(obj, &params.spectrum_peak);
+    lv_obj_add_event_cb(obj, change_bg_opa_cb, LV_EVENT_FOCUSED, NULL);
+    lv_obj_add_event_cb(obj, change_bg_opa_cb, LV_EVENT_DEFOCUSED, NULL);
     lv_obj_set_width(obj, SMALL_3 - 30);
 
     return row + 1;
 }
 
+/* Spectrum beta, peak hold, peak speed */
+
+uint8_t make_spectrum_beta_peak_hold_speed(uint8_t row) {
+    lv_obj_t *obj;
+    uint8_t   col = 1;
+
+    obj = lv_label_create(grid);
+
+    lv_label_set_text(obj, "Spec. beta, hold, speed");
+    lv_obj_set_grid_cell(obj, LV_GRID_ALIGN_START, 0, 1, LV_GRID_ALIGN_CENTER, row, 1);
+
+    obj = spinbox_uint8(grid, &params.spectrum_beta, []() { dsp_set_spectrum_beta(params.spectrum_beta.x * 0.01f); });
+    lv_obj_add_event_cb(obj, change_bg_opa_cb, LV_EVENT_FOCUSED, NULL);
+    lv_obj_add_event_cb(obj, change_bg_opa_cb, LV_EVENT_DEFOCUSED, NULL);
+
+    lv_spinbox_set_digit_format(obj, 2, 0);
+    lv_spinbox_set_digit_step_direction(obj, LV_DIR_LEFT);
+    lv_obj_set_size(obj, SMALL_2, 56);
+    lv_obj_set_grid_cell(obj, LV_GRID_ALIGN_START, col, 2, LV_GRID_ALIGN_CENTER, row, 1);
+    col += 2;
+
+    obj = spinbox_uint8(grid, &params.spectrum_peak_hold);
+    lv_obj_add_event_cb(obj, change_bg_opa_cb, LV_EVENT_FOCUSED, NULL);
+    lv_obj_add_event_cb(obj, change_bg_opa_cb, LV_EVENT_DEFOCUSED, NULL);
+
+
+    lv_spinbox_set_digit_format(obj, 2, 0);
+    lv_spinbox_set_digit_step_direction(obj, LV_DIR_LEFT);
+    lv_obj_set_size(obj, SMALL_2, 56);
+
+    lv_obj_set_grid_cell(obj, LV_GRID_ALIGN_START, col, 2, LV_GRID_ALIGN_CENTER, row, 1);
+    col += 2;
+
+    obj = spinbox_uint8(grid, &params.spectrum_peak_speed);
+    lv_obj_add_event_cb(obj, change_bg_opa_cb, LV_EVENT_FOCUSED, NULL);
+    lv_obj_add_event_cb(obj, change_bg_opa_cb, LV_EVENT_DEFOCUSED, NULL);
+
+    lv_spinbox_set_digit_format(obj, 2, 0);
+    lv_spinbox_set_digit_step_direction(obj, LV_DIR_LEFT);
+    lv_obj_set_size(obj, SMALL_2, 56);
+    lv_obj_set_grid_cell(obj, LV_GRID_ALIGN_START, col, 2, LV_GRID_ALIGN_CENTER, row, 1);
+    col += 2;
+
+    return row + 1;
+}
+
+/* Waterfall center line and zoom */
+
 static uint8_t make_waterfall_line_zoom(uint8_t row) {
     lv_obj_t    *obj;
     uint8_t     col = 0;
-
-    row_dsc[row] = 54;
 
     obj = lv_label_create(grid);
 
@@ -1205,7 +1427,8 @@ static uint8_t make_waterfall_line_zoom(uint8_t row) {
     lv_obj_center(obj);
 
     obj = switch_bool(obj, &params.waterfall_center_line);
-
+    lv_obj_add_event_cb(obj, change_bg_opa_cb, LV_EVENT_FOCUSED, NULL);
+    lv_obj_add_event_cb(obj, change_bg_opa_cb, LV_EVENT_DEFOCUSED, NULL);
     lv_obj_set_width(obj, SMALL_3 - 30);
 
     obj = lv_obj_create(grid);
@@ -1226,8 +1449,6 @@ static uint8_t make_waterfall_line_zoom(uint8_t row) {
 static uint8_t make_waterfall_smooth_scroll(uint8_t row) {
     lv_obj_t    *obj;
     uint8_t     col = 0;
-
-    row_dsc[row] = 54;
 
     obj = lv_label_create(grid);
 
@@ -1262,8 +1483,6 @@ static void sp_mode_update_cb(lv_event_t * e) {
 static uint8_t make_sp_mode(uint8_t row) {
     lv_obj_t    *obj;
     uint8_t     col = 0;
-
-    row_dsc[row] = 54;
 
     obj = lv_label_create(grid);
 
@@ -1312,8 +1531,6 @@ static void comp_th_gain_update_cb(lv_event_t * e) {
 static uint8_t make_comp_th_makeup(uint8_t row) {
     lv_obj_t    *obj;
     lv_obj_t    *cell;
-
-    row_dsc[row] = 54;
 
     cell = lv_label_create(grid);
 
@@ -1366,8 +1583,6 @@ static uint8_t make_tx_offset(uint8_t row) {
     lv_obj_t    *obj;
     lv_obj_t    *cell;
 
-    row_dsc[row] = 54;
-
     cell = lv_label_create(grid);
 
     lv_label_set_text(cell, "TX IQ offsets");
@@ -1403,6 +1618,16 @@ static uint8_t make_tx_offset(uint8_t row) {
 /* Output gain */
 #define OUTPUT_GAIN_STEP 0.2f
 
+static void output_gain_subject_cb(Subject * subj, void *user_data) {
+    lv_obj_t *slider = (lv_obj_t *)user_data;
+    float val = subject_get_float(subj);
+    lv_slider_set_value(slider, val / OUTPUT_GAIN_STEP, LV_ANIM_OFF);
+
+    lv_obj_t *slider_label = (lv_obj_t *)lv_obj_get_user_data(slider);
+    char *fmt = (char *)lv_obj_get_user_data(slider_label);
+    lv_label_set_text_fmt(slider_label, fmt, val);
+}
+
 static void output_gain_update_cb(lv_event_t * e) {
     lv_obj_t *obj = lv_event_get_target(e);
     float val = (float)lv_slider_get_value(obj) * OUTPUT_GAIN_STEP;
@@ -1410,15 +1635,12 @@ static void output_gain_update_cb(lv_event_t * e) {
     lv_obj_t *slider_label = (lv_obj_t *)lv_obj_get_user_data(obj);
     char *fmt = (char *)lv_obj_get_user_data(slider_label);
     lv_label_set_text_fmt(slider_label, fmt, val);
-    subject_set_float(cfg.output_gain.val, val);
-    printf("set val: %0.1f\n", val);
+    subject_set_float(cfg_cur.band->output_gain.val, val);
 }
 
 static uint8_t make_output_gain(uint8_t row) {
     lv_obj_t    *obj;
     lv_obj_t    *cell;
-
-    row_dsc[row] = 54;
 
     cell = lv_label_create(grid);
 
@@ -1432,21 +1654,42 @@ static uint8_t make_output_gain(uint8_t row) {
     lv_obj_set_style_bg_opa(cell, LV_OPA_TRANSP, LV_PART_MAIN);
     lv_obj_clear_flag(cell, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_center(cell);
-
-    slider_with_text(cell, subject_get_float(cfg.output_gain.val),
+    lv_obj_t *slider = slider_with_text(cell, subject_get_float(cfg_cur.band->output_gain.val),
         -25.0f, 25.0f, OUTPUT_GAIN_STEP,
         SMALL_6 - 120, "%0.1f", output_gain_update_cb);
+
+    output_gain_observer = cfg_cur.band->output_gain.val->subscribe_delayed(output_gain_subject_cb, (void*)slider);
+    output_gain_observer->notify();
 
     return row + 1;
 }
 
+/* Charger */
 
+uint8_t make_charger(uint8_t row) {
+    lv_obj_t *obj;
+    uint8_t   col = 0;
+
+    obj = lv_label_create(grid);
+
+    lv_label_set_text(obj, "Charger");
+    lv_obj_set_grid_cell(obj, LV_GRID_ALIGN_START, col++, 1, LV_GRID_ALIGN_CENTER, row, 1);
+
+    obj = dropdown_uint8(grid, &params.charger, " Off \n On \n Shadow", [](lv_event_t *e) {
+        uint8_dropdown_update_cb(e);
+        radio_update_charger();
+    });
+
+    lv_obj_set_size(obj, SMALL_6, 56);
+    lv_obj_set_grid_cell(obj, LV_GRID_ALIGN_START, 1, 6, LV_GRID_ALIGN_CENTER, row, 1);
+    lv_obj_center(obj);
+
+    return row + 1;
+}
 
 static uint8_t make_freq_accel(uint8_t row) {
     lv_obj_t    *obj;
     uint8_t     col = 0;
-
-    row_dsc[row] = 54;
 
     obj = lv_label_create(grid);
 
@@ -1465,8 +1708,6 @@ static uint8_t make_freq_accel(uint8_t row) {
 static uint8_t make_theme(uint8_t row) {
     lv_obj_t    *obj;
     uint8_t     col = 0;
-
-    row_dsc[row] = 54;
 
     obj = lv_label_create(grid);
 
@@ -1488,13 +1729,10 @@ static uint8_t make_delimiter(uint8_t row) {
     return row + 1;
 }
 
-static void construct_cb(lv_obj_t *parent) {
-    dialog.obj = dialog_init(parent);
-
+static void grid_create() {
+    std::fill_n(row_dsc, 64, 54);
     grid = lv_obj_create(dialog.obj);
-
     lv_obj_set_layout(grid, LV_LAYOUT_GRID);
-
     lv_obj_set_size(grid, 780, 330);
     lv_obj_set_style_text_color(grid, lv_color_white(), 0);
     lv_obj_set_style_bg_opa(grid, LV_OPA_TRANSP, LV_PART_MAIN);
@@ -1503,8 +1741,20 @@ static void construct_cb(lv_obj_t *parent) {
     lv_obj_set_style_pad_row(grid, 5, 0);
 
     lv_obj_center(grid);
+}
 
-    uint8_t row = 1;
+static void grid_delete() {
+    if (grid) {
+        lv_group_set_editing(keyboard_group, false);
+        lv_obj_del(grid);
+    }
+}
+
+static void make_general_page() {
+    grid_delete();
+    grid_create();
+
+    uint8_t row = 0;
 
     now = time(NULL);
     struct tm *t = localtime(&now);
@@ -1513,60 +1763,34 @@ static void construct_cb(lv_obj_t *parent) {
 
     row = make_date(row);
     row = make_time(row);
-
     row = make_delimiter(row);
+
     row = make_backlight(row);
-
     row = make_delimiter(row);
+
     row = make_line_gain(row);
-
     row = make_delimiter(row);
-    row = make_mag(row);
 
-    row = make_delimiter(row);
-    row = make_clock(row);
-
-    row = make_delimiter(row);
-    row = make_long_action(row);
-
-    row = make_delimiter(row);
-    row = make_hmic_action(row);
-
-    row = make_delimiter(row);
     row = make_audio_gain(row);
-
     row = make_delimiter(row);
-    row = make_voice(row);
 
-    row = make_delimiter(row);
-    row = make_auto(row);
-
-    row = make_delimiter(row);
-    row = make_waterfall_line_zoom(row);
-    row = make_waterfall_smooth_scroll(row);
-
-    row = make_delimiter(row);
     row = make_sp_mode(row);
+    row = make_delimiter(row);
 
     if (x6100_control_get_patched_revision() >= 3) {
-        row = make_delimiter(row);
         row = make_comp_th_makeup(row);
+        row = make_delimiter(row);
     }
 
-    row = make_delimiter(row);
     row = make_tx_offset(row);
+    row = make_delimiter(row);
 
     if (x6100_control_get_patched_revision() >= 3) {
-        row = make_delimiter(row);
         row = make_output_gain(row);
+        row = make_delimiter(row);
     }
 
-    row = make_delimiter(row);
-    row = make_freq_accel(row);
-
-    row = make_delimiter(row);
-    row = make_theme(row);
-
+    row = make_charger(row);
     row = make_delimiter(row);
 
     for (uint8_t i = 0; i < TRANSVERTER_NUM; i++)
@@ -1574,6 +1798,71 @@ static void construct_cb(lv_obj_t *parent) {
 
     row_dsc[row] = LV_GRID_TEMPLATE_LAST;
     lv_obj_set_grid_dsc_array(grid, col_dsc, row_dsc);
+}
+
+static void make_ui_page() {
+    grid_delete();
+    grid_create();
+    uint8_t row = 0;
+
+    // row = make_delimiter(row);
+    row = make_clock(row);
+    row = make_delimiter(row);
+
+    row = make_long_action(row);
+    row = make_delimiter(row);
+
+    row = make_hmic_action(row);
+    row = make_mag(row);
+    row = make_delimiter(row);
+
+    row = make_auto_levels(row);
+    row = make_spectrum_min_max(row);
+    row = make_delimiter(row);
+
+    row = make_spectrum_fill_peak(row);
+    row = make_spectrum_beta_peak_hold_speed(row);
+
+    row = make_waterfall_line_zoom(row);
+    row = make_waterfall_smooth_scroll(row);
+    row = make_delimiter(row);
+
+    row = make_freq_accel(row);
+    row = make_delimiter(row);
+
+    row = make_theme(row);
+
+    row_dsc[row] = LV_GRID_TEMPLATE_LAST;
+    lv_obj_set_grid_dsc_array(grid, col_dsc, row_dsc);
+}
+
+static void make_voice_page() {
+    grid_delete();
+    grid_create();
+    uint8_t row = 0;
+
+    row = make_voice(row);
+    row = make_voice_lang(row);
+
+    row_dsc[row] = LV_GRID_TEMPLATE_LAST;
+    lv_obj_set_grid_dsc_array(grid, col_dsc, row_dsc);
+}
+
+static void construct_cb(lv_obj_t *parent) {
+    dialog.obj = dialog_init(parent);
+    make_general_page();
+    for (auto &&btn : btn_page.items) {
+        buttons_mark(btn, false);
+    }
+    buttons_mark(&btn_general, true);
+}
+
+static void destruct_cb() {
+    grid_delete();
+    grid = NULL;
+    if (output_gain_observer) {
+        delete output_gain_observer;
+    }
 }
 
 static void key_cb(lv_event_t * e) {
