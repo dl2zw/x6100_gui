@@ -468,9 +468,11 @@ static Frame *process_req(const Frame *req) {
             break;
 
         case C_SET_MODE:
-            if (data_size == 2) {
+            if ((data_size >= 1) && (data_size <= 2)) {
                 subject_set_int(cfg_cur.mode, ci_mode_2_x_mode(req->data[0]));
-                // filter selector -> req->data[1]
+                if (data_size == 2) {
+                    // filter selector -> req->data[1]
+                }
                 resp->set_code(CODE_OK);
             } else {
                 set_unsupported(req, resp);
@@ -623,12 +625,18 @@ static Frame *process_req(const Frame *req) {
                 switch (req->data[0]) {
                     case 0x02: // S-meter
                         {
+                            // Flrig
+                            // 41 - S9
+                            // 14 - S3
                             int16_t db = meter_get_raw_db();
-                            if (db < S9) {
-                                val = (db - S9) * 2.1f + 120;
-                            } else {
-                                val = (db - S9) * 2 + 120;
-                            }
+                            val = db * 0.75f + 96;
+                            // Wfview:
+                            // val = 14;
+                            // if (db < S9) {
+                            //     val = (db - S9) * 2.1f + 120;
+                            // } else {
+                            //     val = (db - S9) * 2 + 120;
+                            // }
                             resp->set_payload_len(4);
                             to_bcd_be(&resp->data[1], val, 3);
                         }

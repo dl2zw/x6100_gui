@@ -28,23 +28,16 @@
 #define BAND_NOT_LOADED -10
 
 params_t params = {
-    .vol_modes              = (1 << VOL_VOL) | (1 << VOL_RFG) | (1 << VOL_FILTER_LOW) | (1 << VOL_FILTER_HIGH) | (1 << VOL_PWR) | (1 << VOL_HMIC),
-    .mfk_modes              = (1 << MFK_SPECTRUM_FACTOR) | (1 << MFK_SPECTRUM_BETA) | (1 << MFK_PEAK_HOLD) | (1<< MFK_PEAK_SPEED),
-
     .brightness_normal      = 9,
     .brightness_idle        = 1,
     .brightness_timeout     = 10,
     .brightness_buttons     = BUTTONS_TEMPORARILY,
 
-    .spectrum_beta          = 70,
-    .spectrum_filled        = true,
-    .spectrum_peak          = true,
-    .spectrum_peak_hold     = 5000,
-    .spectrum_peak_speed    = 0.5f,
-    .spectrum_auto_min      = { .x = true,  .name = "spectrum_auto_min",        .voice = "Auto minimum of spectrum" },
-    .spectrum_auto_max      = { .x = true,  .name = "spectrum_auto_max",        .voice = "Auto maximum of spectrum" },
-    .waterfall_auto_min     = { .x = true,  .name = "waterfall_auto_min",       .voice = "Auto minimum of waterfall" },
-    .waterfall_auto_max     = { .x = true,  .name = "waterfall_auto_max",       .voice = "Auto maximum of waterfall" },
+    .spectrum_beta          = { .x = 70, .min = 0, .max = 90, .name = "spectrum_beta"},
+    .spectrum_filled        = { .x = true,  .name = "spectrum_filled"},
+    .spectrum_peak          = { .x = true,  .name = "spectrum_peak"},
+    .spectrum_peak_hold     = { .x = 5,  .min=1, .max=10, .name = "spectrum_peak_hold"},
+    .spectrum_peak_speed    = { .x = 5,  .min=1, .max=30, .name = "spectrum_peak_speed"},
     .waterfall_smooth_scroll= { .x = true,  .name = "waterfall_smooth_scroll",  .voice = "Waterfall smooth scroll"},
     .waterfall_center_line  = { .x = true,  .name = "waterfall_center_line",    .voice = "Waterfall center line"},
     .waterfall_zoom         = { .x = true,  .name = "waterfall_zoom",           .voice = "Waterfall zoom"},
@@ -59,11 +52,9 @@ params_t params = {
     .mic                    = x6100_mic_auto,
     .hmic                   = 20,
     .imic                   = 30,
-    .charger                = true,
+    .charger                = { .x = 1, .min = 0, .max = 2, .name = "charger"},
     .bias_drive             = 450,
     .bias_final             = 650,
-    .rit                    = 0,
-    .xit                    = 0,
     .line_in                = 10,
     .line_out               = 10,
     .moni                   = 59,
@@ -187,32 +178,16 @@ static bool params_load() {
         const int64_t   l = sqlite3_column_int64(stmt, 1);
         const char      *t = sqlite3_column_text(stmt, 1);
 
-        if (strcmp(name, "spectrum_beta") == 0) {
-            params.spectrum_beta = i;
-        } else if (strcmp(name, "spectrum_filled") == 0) {
-            params.spectrum_filled = i;
-        } else if (strcmp(name, "spectrum_peak") == 0) {
-            params.spectrum_peak = i;
-        } else if (strcmp(name, "spectrum_peak_hold") == 0) {
-            params.spectrum_peak_hold = i;
-        } else if (strcmp(name, "spectrum_peak_speed") == 0) {
-            params.spectrum_peak_speed = i * 0.1f;
-        } else if (strcmp(name, "mic") == 0) {
+        if (strcmp(name, "mic") == 0) {
             params.mic = i;
         } else if (strcmp(name, "hmic") == 0) {
             params.hmic = i;
         } else if (strcmp(name, "imic") == 0) {
             params.imic = i;
-        } else if (strcmp(name, "charger") == 0) {
-            params.charger = i;
         } else if (strcmp(name, "cw_encoder_period") == 0) {
             params.cw_encoder_period = i;
         } else if (strcmp(name, "voice_msg_period") == 0) {
             params.voice_msg_period = i;
-        } else if (strcmp(name, "vol_modes") == 0) {
-            params.vol_modes = l;
-        } else if (strcmp(name, "mfk_modes") == 0) {
-            params.mfk_modes = l;
         } else if (strcmp(name, "rtty_rate") == 0) {
             params.rtty_rate = i;
         } else if (strcmp(name, "rtty_shift") == 0) {
@@ -221,10 +196,6 @@ static bool params_load() {
             params.rtty_center = i;
         } else if (strcmp(name, "rtty_reverse") == 0) {
             params.rtty_reverse = i;
-        } else if (strcmp(name, "rit") == 0) {
-            params.rit = i;
-        } else if (strcmp(name, "xit") == 0) {
-            params.xit = i;
         } else if (strcmp(name, "brightness_normal") == 0) {
             params.brightness_normal = i;
         } else if (strcmp(name, "brightness_idle") == 0) {
@@ -272,13 +243,15 @@ static bool params_load() {
         if (params_load_float(&params.play_gain_db_f, name, f)) continue;
         if (params_load_float(&params.rec_gain_db_f, name, f)) continue;
 
+        if (params_load_uint8(&params.charger, name, i)) continue;
         if (params_load_bool(&params.mag_freq, name, i)) continue;
         if (params_load_bool(&params.mag_info, name, i)) continue;
         if (params_load_bool(&params.mag_alc, name, i)) continue;
-        if (params_load_bool(&params.spectrum_auto_min, name, i)) continue;
-        if (params_load_bool(&params.spectrum_auto_max, name, i)) continue;
-        if (params_load_bool(&params.waterfall_auto_min, name, i)) continue;
-        if (params_load_bool(&params.waterfall_auto_max, name, i)) continue;
+        if (params_load_uint8(&params.spectrum_beta, name, i)) continue;
+        if (params_load_uint8(&params.spectrum_peak_hold, name, i)) continue;
+        if (params_load_uint8(&params.spectrum_peak_speed, name, i)) continue;
+        if (params_load_bool(&params.spectrum_filled, name, i)) continue;
+        if (params_load_bool(&params.spectrum_peak, name, i)) continue;
         if (params_load_bool(&params.waterfall_smooth_scroll, name, i)) continue;
         if (params_load_bool(&params.waterfall_center_line, name, i)) continue;
         if (params_load_bool(&params.waterfall_zoom, name, i)) continue;
@@ -341,33 +314,17 @@ static void params_save() {
         return;
     }
 
-    if (params.dirty.band)                  params_write_int("band", params.band_id, &params.dirty.band);
-
-    if (params.dirty.spectrum_beta)         params_write_int("spectrum_beta", params.spectrum_beta, &params.dirty.spectrum_beta);
-    if (params.dirty.spectrum_filled)       params_write_int("spectrum_filled", params.spectrum_filled, &params.dirty.spectrum_filled);
-    if (params.dirty.spectrum_peak)         params_write_int("spectrum_peak", params.spectrum_peak, &params.dirty.spectrum_peak);
-    if (params.dirty.spectrum_peak_hold)    params_write_int("spectrum_peak_hold", params.spectrum_peak_hold, &params.dirty.spectrum_peak_hold);
-    if (params.dirty.spectrum_peak_speed)   params_write_int("spectrum_peak_speed", params.spectrum_peak_speed * 10, &params.dirty.spectrum_peak_speed);
-
     if (params.dirty.mic)                   params_write_int("mic", params.mic, &params.dirty.mic);
     if (params.dirty.hmic)                  params_write_int("hmic", params.hmic, &params.dirty.hmic);
     if (params.dirty.imic)                  params_write_int("imic", params.imic, &params.dirty.imic);
 
-    if (params.dirty.charger)               params_write_int("charger", params.charger, &params.dirty.charger);
-
     if (params.dirty.cw_encoder_period)     params_write_int("cw_encoder_period", params.cw_encoder_period, &params.dirty.cw_encoder_period);
     if (params.dirty.voice_msg_period)      params_write_int("voice_msg_period", params.voice_msg_period, &params.dirty.voice_msg_period);
-
-    if (params.dirty.vol_modes)             params_write_int64("vol_modes", params.vol_modes, &params.dirty.vol_modes);
-    if (params.dirty.mfk_modes)             params_write_int64("mfk_modes", params.mfk_modes, &params.dirty.mfk_modes);
 
     if (params.dirty.rtty_rate)             params_write_int("rtty_rate", params.rtty_rate, &params.dirty.rtty_rate);
     if (params.dirty.rtty_shift)            params_write_int("rtty_shift", params.rtty_shift, &params.dirty.rtty_shift);
     if (params.dirty.rtty_center)           params_write_int("rtty_center", params.rtty_center, &params.dirty.rtty_center);
     if (params.dirty.rtty_reverse)          params_write_int("rtty_reverse", params.rtty_reverse, &params.dirty.rtty_reverse);
-
-    if (params.dirty.rit)                   params_write_int("rit", params.rit, &params.dirty.rit);
-    if (params.dirty.xit)                   params_write_int("xit", params.xit, &params.dirty.xit);
 
     if (params.dirty.line_in)               params_write_int("line_in", params.line_in, &params.dirty.line_in);
     if (params.dirty.line_out)              params_write_int("line_out", params.line_out, &params.dirty.line_out);
@@ -408,13 +365,15 @@ static void params_save() {
 
     params_save_uint16(&params.ft8_tx_freq);
 
+    params_save_uint8(&params.charger);
     params_save_bool(&params.mag_freq);
     params_save_bool(&params.mag_info);
     params_save_bool(&params.mag_alc);
-    params_save_bool(&params.spectrum_auto_min);
-    params_save_bool(&params.spectrum_auto_max);
-    params_save_bool(&params.waterfall_auto_min);
-    params_save_bool(&params.waterfall_auto_max);
+    params_save_uint8(&params.spectrum_beta);
+    params_save_uint8(&params.spectrum_peak_hold);
+    params_save_uint8(&params.spectrum_peak_speed);
+    params_save_bool(&params.spectrum_filled);
+    params_save_bool(&params.spectrum_peak);
     params_save_bool(&params.waterfall_smooth_scroll);
     params_save_bool(&params.waterfall_center_line);
     params_save_bool(&params.waterfall_zoom);
@@ -437,7 +396,6 @@ static void * params_thread(void *arg) {
         pthread_mutex_lock(&params_mux);
         if (params_ready_to_save()){
             params_save();
-            // params_band_save(params.band_id);
             // params_mode_save();
         }
         pthread_mutex_unlock(&params_mux);
@@ -619,17 +577,6 @@ uint8_t params_uint8_change(params_uint8_t *var, int16_t df) {
     params_uint8_set(var, x);
 
     return var->x;
-}
-
-inline char * params_charger_str_get(radio_charger_t val) {
-    switch (val) {
-        case RADIO_CHARGER_OFF:
-            return "Off";
-        case RADIO_CHARGER_ON:
-            return "On";
-        case RADIO_CHARGER_SHADOW:
-            return "Shadow";
-    }
 }
 
 inline char * params_mic_str_get(x6100_mic_sel_t val) {
