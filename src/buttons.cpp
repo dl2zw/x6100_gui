@@ -662,12 +662,12 @@ static void button_action_cb(button_item_t *item) {
 
 static void button_vol_update_cb(button_item_t *item) {
     vol_set_mode((cfg_vol_mode_t)item->data);
-    vol_update(0, true);
+    vol_update(0, true, true);
 }
 
 static void button_mfk_update_cb(button_item_t *item) {
     mfk_set_mode((cfg_mfk_mode_t)item->data);
-    mfk_update(0, true);
+    mfk_update(0, true, true);
 }
 
 static void button_vol_hold_cb(button_item_t *item) {
