@@ -93,6 +93,7 @@ lv_style_t  btn_disabled_style;
 lv_style_t  msg_style;
 lv_style_t  msg_tiny_style;
 lv_style_t  clock_style;
+lv_style_t  knobs_style;
 lv_style_t  info_style;
 lv_style_t  info_row_style;
 lv_style_t  info_item_style;
@@ -102,7 +103,7 @@ lv_style_t  tx_info_style;
 lv_style_t  panel_top_style;
 lv_style_t  panel_mid_style;
 lv_style_t  panel_bottom_style;
-lv_style_t  pannel_style;
+lv_style_t  panel_style;
 
 lv_style_t  dialog_style;
 lv_style_t  dialog_item_style;
@@ -183,7 +184,7 @@ void styles_init(themes_t theme) {
     lv_style_set_width(&msg_style, 603);
     // lv_style_set_height(&msg_style, 66);
     lv_style_set_x(&msg_style, 800 / 2 - (603 / 2));
-    lv_style_set_y(&msg_style, 300);
+    lv_style_set_y(&msg_style, 270);
     lv_style_set_radius(&msg_style, 0);
     lv_style_set_bg_img_opa(&msg_style, LV_OPA_COVER);
     lv_style_set_pad_ver(&msg_style, 20);
@@ -199,17 +200,17 @@ void styles_init(themes_t theme) {
     lv_style_set_pad_ver(&msg_tiny_style, 12);
 
     /* Panel */
-    lv_style_init(&pannel_style);
-    lv_style_set_text_color(&pannel_style, lv_color_white());
-    lv_style_set_text_font(&pannel_style, &sony_38);
-    lv_style_set_width(&pannel_style, 795);
-    lv_style_set_height(&pannel_style, 182);
-    lv_style_set_x(&pannel_style, 800 / 2 - (795 / 2));
-    lv_style_set_y(&pannel_style, 230);
-    lv_style_set_pad_ver(&pannel_style, 10);
-    lv_style_set_pad_hor(&pannel_style, 10);
-    lv_style_set_radius(&pannel_style, 0);
-    lv_style_set_bg_img_opa(&pannel_style, LV_OPA_COVER);
+    lv_style_init(&panel_style);
+    lv_style_set_text_color(&panel_style, lv_color_white());
+    lv_style_set_text_font(&panel_style, &sony_38);
+    lv_style_set_width(&panel_style, 795);
+    lv_style_set_height(&panel_style, 182);
+    lv_style_set_x(&panel_style, 800 / 2 - (795 / 2));
+    lv_style_set_y(&panel_style, 230);
+    lv_style_set_pad_ver(&panel_style, 10);
+    lv_style_set_pad_hor(&panel_style, 10);
+    lv_style_set_radius(&panel_style, 0);
+    lv_style_set_bg_img_opa(&panel_style, LV_OPA_COVER);
 
     lv_style_init(&dialog_style);
     lv_style_set_text_color(&dialog_style, lv_color_white());
@@ -246,6 +247,17 @@ void styles_init(themes_t theme) {
     lv_style_set_align(&clock_style, LV_ALIGN_TOP_RIGHT);
     lv_style_set_radius(&clock_style, 0);
     lv_style_set_bg_img_opa(&clock_style, LV_OPA_COVER);
+
+    /* Knobs */
+    lv_style_init(&knobs_style);
+    lv_style_set_text_color(&knobs_style, lv_color_white());
+    lv_style_set_text_font(&knobs_style, &sony_24);
+    lv_style_set_radius(&knobs_style, 8);
+    lv_style_set_bg_opa(&knobs_style, LV_OPA_60);
+    lv_style_set_bg_color(&knobs_style, lv_color_black());
+    lv_style_set_border_width(&knobs_style, 0);
+    lv_style_set_pad_hor(&knobs_style, 5);
+    lv_style_set_pad_ver(&knobs_style, 3);
 
     /* Left info */
     lv_style_init(&info_style);
@@ -336,7 +348,7 @@ static void setup_theme_legacy() {
     lv_style_set_width(&meter_style, 377);
     lv_style_set_height(&meter_style, 61);
 
-    lv_style_set_bg_img_src(&pannel_style, PATH "images/panel.bin");
+    lv_style_set_bg_img_src(&panel_style, PATH "images/panel.bin");
     lv_style_set_bg_img_src(&msg_tiny_style, PATH "images/msg_tiny.bin");
     lv_style_set_bg_img_src(&dialog_style, PATH "images/dialog.bin");
     /* TX info */
@@ -402,7 +414,7 @@ static void setup_theme_simple() {
     lv_style_set_width(&meter_style, 380);
     lv_style_set_height(&meter_style, 61);
 
-    lv_style_set_bg_img_src(&pannel_style, PATH "images/panel_dark.bin");
+    lv_style_set_bg_img_src(&panel_style, PATH "images/panel_dark.bin");
     lv_style_set_bg_img_src(&msg_tiny_style, PATH "images/msg_tiny_dark.bin");
     lv_style_set_bg_img_src(&dialog_style, PATH "images/dialog_dark.bin");
     /* TX info */

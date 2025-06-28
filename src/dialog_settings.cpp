@@ -112,8 +112,6 @@ static dialog_t     dialog = {
 
 dialog_t            *dialog_settings = &dialog;
 
-static ObserverDelayed *output_gain_observer;
-
 static void load_general_page(button_item_t *item) {
     make_general_page();
     for (auto &&btn : btn_page.items) {
@@ -1483,6 +1481,30 @@ static uint8_t make_waterfall_smooth_scroll(uint8_t row) {
     return row + 1;
 }
 
+static uint8_t make_knob_info(uint8_t row) {
+    lv_obj_t    *obj;
+    uint8_t     col = 0;
+
+    obj = lv_label_create(grid);
+
+    lv_label_set_text(obj, "Knob info");
+    lv_obj_set_grid_cell(obj, LV_GRID_ALIGN_START, col++, 1, LV_GRID_ALIGN_CENTER, row, 1);
+
+    obj = lv_obj_create(grid);
+
+    lv_obj_set_size(obj, SMALL_3, 56);
+    lv_obj_set_grid_cell(obj, LV_GRID_ALIGN_START, 4, 3, LV_GRID_ALIGN_CENTER, row, 1);
+    lv_obj_set_style_bg_opa(obj, LV_OPA_TRANSP, LV_PART_MAIN);
+    lv_obj_clear_flag(obj, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_center(obj);
+
+    obj = switch_bool(obj, cfg.knob_info.val);
+
+    lv_obj_set_width(obj, SMALL_3 - 30);
+
+    return row + 1;
+}
+
 static void sp_mode_update_cb(lv_event_t * e) {
     lv_obj_t *obj = lv_event_get_target(e);
 
@@ -1631,16 +1653,6 @@ static uint8_t make_tx_offset(uint8_t row) {
 /* Output gain */
 #define OUTPUT_GAIN_STEP 0.2f
 
-static void output_gain_subject_cb(Subject * subj, void *user_data) {
-    lv_obj_t *slider = (lv_obj_t *)user_data;
-    float val = subject_get_float(subj);
-    lv_slider_set_value(slider, val / OUTPUT_GAIN_STEP, LV_ANIM_OFF);
-
-    lv_obj_t *slider_label = (lv_obj_t *)lv_obj_get_user_data(slider);
-    char *fmt = (char *)lv_obj_get_user_data(slider_label);
-    lv_label_set_text_fmt(slider_label, fmt, val);
-}
-
 static void output_gain_update_cb(lv_event_t * e) {
     lv_obj_t *obj = lv_event_get_target(e);
     float val = (float)lv_slider_get_value(obj) * OUTPUT_GAIN_STEP;
@@ -1648,7 +1660,8 @@ static void output_gain_update_cb(lv_event_t * e) {
     lv_obj_t *slider_label = (lv_obj_t *)lv_obj_get_user_data(obj);
     char *fmt = (char *)lv_obj_get_user_data(slider_label);
     lv_label_set_text_fmt(slider_label, fmt, val);
-    subject_set_float(cfg_cur.band->output_gain.val, val);
+    subject_set_float(cfg.output_gain.val, val);
+    printf("set val: %0.1f\n", val);
 }
 
 static uint8_t make_output_gain(uint8_t row) {
@@ -1667,12 +1680,10 @@ static uint8_t make_output_gain(uint8_t row) {
     lv_obj_set_style_bg_opa(cell, LV_OPA_TRANSP, LV_PART_MAIN);
     lv_obj_clear_flag(cell, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_center(cell);
-    lv_obj_t *slider = slider_with_text(cell, subject_get_float(cfg_cur.band->output_gain.val),
+
+    slider_with_text(cell, subject_get_float(cfg.output_gain.val),
         -25.0f, 25.0f, OUTPUT_GAIN_STEP,
         SMALL_6 - 120, "%0.1f", output_gain_update_cb);
-
-    output_gain_observer = cfg_cur.band->output_gain.val->subscribe_delayed(output_gain_subject_cb, (void*)slider);
-    output_gain_observer->notify();
 
     return row + 1;
 }
@@ -1838,6 +1849,7 @@ static void make_ui_page() {
 
     row = make_waterfall_line_zoom(row);
     row = make_waterfall_smooth_scroll(row);
+    row = make_knob_info(row);
     row = make_delimiter(row);
 
     row = make_freq_accel(row);
@@ -1873,9 +1885,6 @@ static void construct_cb(lv_obj_t *parent) {
 static void destruct_cb() {
     grid_delete();
     grid = NULL;
-    if (output_gain_observer) {
-        delete output_gain_observer;
-    }
 }
 
 static void key_cb(lv_event_t * e) {
