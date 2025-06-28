@@ -41,6 +41,7 @@ extern lv_style_t   btn_disabled_style;
 extern lv_style_t   msg_style;
 extern lv_style_t   msg_tiny_style;
 extern lv_style_t   clock_style;
+extern lv_style_t   knobs_style;
 extern lv_style_t   info_style;
 extern lv_style_t   info_row_style;
 extern lv_style_t   info_item_style;
@@ -50,7 +51,7 @@ extern lv_style_t   tx_info_style;
 extern lv_style_t   panel_top_style;
 extern lv_style_t   panel_mid_style;
 extern lv_style_t   panel_bottom_style;
-extern lv_style_t   pannel_style;
+extern lv_style_t   panel_style;
 
 extern lv_style_t   dialog_style;
 extern lv_style_t   dialog_item_style;
