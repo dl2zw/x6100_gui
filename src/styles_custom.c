@@ -332,7 +332,7 @@ void styles_customize_theme() {
         } else if (strcmp(key, "meter.height") == 0) {
             status = set_custom_height(value, &meter_style);
         } else if (strcmp(key, "panel.bg_img") == 0) {
-            status = set_custom_bg_img_src(value, &pannel_style);
+            status = set_custom_bg_img_src(value, &panel_style);
         } else if (strcmp(key, "msg_tiny.bg_img") == 0) {
             status = set_custom_bg_img_src(value, &msg_tiny_style);
         } else if (strcmp(key, "dialog.bg_img") == 0) {
