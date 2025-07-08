@@ -181,7 +181,7 @@ void styles_init(themes_t theme) {
     lv_style_init(&msg_style);
     lv_style_set_pad_hor(&msg_style, 10);
     lv_style_set_text_color(&msg_style, lv_color_white());
-    lv_style_set_text_font(&msg_style, &sony_30);
+    lv_style_set_text_font(&msg_style, &sony_38);
     lv_style_set_width(&msg_style, 603);
     // lv_style_set_height(&msg_style, 66);
     lv_style_set_x(&msg_style, 800 / 2 - (603 / 2));
@@ -331,7 +331,6 @@ void styles_set_theme(themes_t theme) {
 
 static void setup_theme_legacy() {
     wf_palette = wf_palette_legacy;
-    wf_palette = wf_palette_gauss;
 
     bg_color = lv_color_hex(0x0040A0);
     lv_style_set_bg_color(&background_style, bg_color);
