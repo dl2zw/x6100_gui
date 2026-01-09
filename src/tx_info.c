@@ -40,7 +40,10 @@ static x6100_mode_t cur_mode;
 
 static lv_obj_t     *obj;
 static lv_obj_t     *alc_label;
+static lv_obj_t     *pwr_label;
+static lv_obj_t     *vswr_label;
 static lv_grad_dsc_t grad;
+
 
 typedef struct {
     char *label;
@@ -205,14 +208,19 @@ static void update_tx_info(void *arg) {
     if (lv_obj_has_flag(obj, LV_OBJ_FLAG_HIDDEN)) {
         return;
     }
-    lv_obj_invalidate(obj);
+    lv_label_set_text_fmt(alc_label, "ALC: %1.1f", alc);
+    lv_label_set_text_fmt(vswr_label, "%.2f", vswr);
+    lv_label_set_text_fmt(pwr_label, "%.2f", pwr);
     if (params.mag_alc.x) {
+        lv_obj_add_flag(alc_label, LV_OBJ_FLAG_HIDDEN);
         msg_tiny_set_text_fmt("ALC: %.1f", alc);
     }
     if (dialog_is_run() || !params.mag_alc.x) {
-        lv_label_set_text_fmt(alc_label, "ALC: %1.1f", alc);
+        lv_obj_clear_flag(alc_label, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_add_flag(vswr_label, LV_OBJ_FLAG_HIDDEN);
     } else {
-        lv_label_set_text(alc_label, "");
+        lv_obj_add_flag(alc_label, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_clear_flag(vswr_label, LV_OBJ_FLAG_HIDDEN);
     }
 }
 
@@ -243,9 +251,23 @@ lv_obj_t *tx_info_init(lv_obj_t *parent) {
     // Small alc indicator
     alc_label = lv_label_create(obj);
     lv_obj_set_style_text_font(alc_label, &sony_20, 0);
-    lv_obj_align(alc_label, LV_ALIGN_BOTTOM_RIGHT, -10, 13);
+    lv_obj_align(alc_label, LV_ALIGN_BOTTOM_RIGHT, 12, 16);
     lv_obj_set_style_text_color(alc_label, lv_color_white(), 0);
     lv_label_set_text(alc_label, "");
+
+    // pwr indicator
+    pwr_label = lv_label_create(obj);
+    lv_obj_set_style_text_font(pwr_label, &sony_20, 0);
+    lv_obj_align(pwr_label, LV_ALIGN_BOTTOM_RIGHT, 12, -46);
+    lv_obj_set_style_text_color(pwr_label, lv_color_white(), 0);
+    lv_label_set_text(pwr_label, "");
+
+    // swr indicator
+    vswr_label = lv_label_create(obj);
+    lv_obj_set_style_text_font(vswr_label, &sony_20, 0);
+    lv_obj_align(vswr_label, LV_ALIGN_BOTTOM_RIGHT, 12, 16);
+    lv_obj_set_style_text_color(vswr_label, lv_color_white(), 0);
+    lv_label_set_text(vswr_label, "");
 
     subject_add_observer(cfg_cur.mode, on_cur_mode_change, NULL);
 

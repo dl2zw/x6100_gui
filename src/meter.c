@@ -12,6 +12,7 @@
 #include "params/params.h"
 #include "spectrum.h"
 #include "util.h"
+#include "scheduler.h"
 
 #define NUM_ITEMS   7
 #define METER_PEAK_HOLD 1500
@@ -32,6 +33,7 @@ static bool             pre=false;
 static bool             att=false;
 
 static lv_obj_t         *obj;
+static lv_obj_t         *db_val_label;
 
 typedef struct {
     char    *label;
@@ -50,6 +52,10 @@ static s_item_t s_items[NUM_ITEMS] = {
 
 static void on_bool_value_change(Subject *subj, void *user_data) {
     *(bool*)user_data = subject_get_int(subj);
+}
+
+static void update_db_label() {
+    lv_label_set_text_fmt(db_val_label, "%.1f", meter_db_raw);
 }
 
 static void meter_draw_cb(lv_event_t * e) {
@@ -151,6 +157,7 @@ lv_obj_t * meter_init(lv_obj_t * parent) {
     obj = lv_obj_create(parent);
 
     lv_obj_add_style(obj, &meter_style, 0);
+    lv_obj_set_scrollbar_mode(obj, LV_SCROLLBAR_MODE_OFF);
 
     lv_obj_add_event_cb(obj, tx_cb, EVENT_RADIO_TX, NULL);
     lv_obj_add_event_cb(obj, rx_cb, EVENT_RADIO_RX, NULL);
@@ -161,6 +168,11 @@ lv_obj_t * meter_init(lv_obj_t * parent) {
     subject_add_delayed_observer(cfg_cur.att, on_bool_value_change, &att);
     on_bool_value_change(cfg_cur.att, &att);
 
+    db_val_label = lv_label_create(obj);
+    lv_obj_set_style_text_font(db_val_label, &sony_20, 0);
+    lv_obj_align(db_val_label, LV_ALIGN_BOTTOM_RIGHT, 12, 16);
+    lv_obj_set_style_text_color(db_val_label, lv_color_white(), 0);
+    lv_label_set_text(db_val_label, "");
     return obj;
 }
 
@@ -195,6 +207,7 @@ void meter_update(float db, float beta) {
         meter_peak -= (now - meter_peak_time - METER_PEAK_HOLD) * METER_PEAK_SPEED / 1000;
     }
     meter_db = meter_db * beta + db * (1.0f - beta);
+    scheduler_put_noargs(update_db_label);
     event_send(obj, LV_EVENT_REFRESH, NULL);
 }
 
