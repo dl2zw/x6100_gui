@@ -951,6 +951,7 @@ static void spectrum_key_cb(lv_event_t * e) {
             break;
 
         case HKEY_FINP:
+        case 'f':
             if (!subject_get_int(freq_lock)) {
                 voice_say_text_fmt("Enter frequency");
                 dialog_construct(dialog_freq, obj);
