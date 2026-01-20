@@ -756,7 +756,7 @@ static void construct_cb(lv_obj_t *parent) {
 
     // setup gain offset
     float target_pwr = LV_MIN(subject_get_float(cfg.pwr.val), MAX_PWR);
-    if (x6100_control_get_patched_revision() >= 3) {
+    if (x6100_control_get_base_ver().rev >= 3) {
         // patched firmware has a true power control
         base_gain_offset = -9.4f;
     } else {

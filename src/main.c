@@ -97,8 +97,8 @@ int main(void) {
     vol_change_mode(0);
     styles_init(params.theme.x);
 
-    dsp_init();
     radio_init();
+    dsp_init();
     lv_obj_t *main_obj = main_screen();
 
     cw_init();

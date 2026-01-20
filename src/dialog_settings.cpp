@@ -1661,7 +1661,6 @@ static void output_gain_update_cb(lv_event_t * e) {
     char *fmt = (char *)lv_obj_get_user_data(slider_label);
     lv_label_set_text_fmt(slider_label, fmt, val);
     subject_set_float(cfg.output_gain.val, val);
-    printf("set val: %0.1f\n", val);
 }
 
 static uint8_t make_output_gain(uint8_t row) {
@@ -1780,6 +1779,8 @@ static void make_general_page() {
 
     uint8_t row = 0;
 
+    x6100_base_ver_t base_ver = x6100_control_get_base_ver();
+
     now = time(NULL);
     struct tm *t = localtime(&now);
 
@@ -1801,7 +1802,7 @@ static void make_general_page() {
     row = make_sp_mode(row);
     row = make_delimiter(row);
 
-    if (x6100_control_get_patched_revision() >= 3) {
+    if (base_ver.rev >= 3) {
         row = make_comp_th_makeup(row);
         row = make_delimiter(row);
     }
@@ -1809,7 +1810,7 @@ static void make_general_page() {
     row = make_tx_offset(row);
     row = make_delimiter(row);
 
-    if (x6100_control_get_patched_revision() >= 3) {
+    if (base_ver.rev >= 3) {
         row = make_output_gain(row);
         row = make_delimiter(row);
     }

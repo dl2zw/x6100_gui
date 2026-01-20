@@ -188,10 +188,10 @@ void meter_set_noise(float val) {
 
 void meter_update(float db, float beta) {
     if (att) {
-        db += 14.0f;
+        db += 15.0f;
     }
     if (pre){
-        db -= 14.0f;
+        db -= 19.0f;
     }
     if (db < min_db) {
         db = min_db;

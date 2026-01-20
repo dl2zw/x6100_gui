@@ -9,6 +9,8 @@
 #include "util.hpp"
 #include "cfg/subjects.h"
 
+#define COMPARE(a, b) ((a > b) - (a < b))
+
 extern "C" {
     #include "cfg/cfg.h"
 
@@ -297,6 +299,18 @@ void sleep_usec(uint32_t msec) {
             break; // Some other error; bail out.
     }
     errno = olderrno;
+}
+
+int32_t util_compare_version(x6100_base_ver_t a, x6100_base_ver_t b) {
+    int ret;
+    if ((ret = COMPARE(a.major, b.major)) == 0) {
+        if ((ret = COMPARE(a.minor, b.minor)) == 0) {
+            if ((ret = COMPARE(a.patch, b.patch)) == 0) {
+                ret = COMPARE(a.rev, b.rev);
+            }
+        }
+    }
+    return ret;
 }
 
 template <typename T> T loop_modes(int16_t dir, T mode, const uint64_t mask, const std::vector<T> all_modes) {

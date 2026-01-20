@@ -18,6 +18,7 @@
 #include "dialog_swrscan.h"
 #include "cw.h"
 #include "pubsub_ids.h"
+#include "custom_config.h"
 
 #include <aether_radio/x6100_control/low/flow.h>
 #include <aether_radio/x6100_control/low/gpio.h>
@@ -26,7 +27,6 @@
 #include <stdio.h>
 #include <pthread.h>
 #include <string.h>
-
 
 
 #define FLOW_RESTART_TIMEOUT 300
@@ -38,12 +38,26 @@ static void(*low_power_cb)(bool) = NULL;
 static pthread_mutex_t  control_mux;
 
 static x6100_flow_t     *pack;
+static x6100_base_ver_t base_ver;
 
 static radio_state_t    state = RADIO_RX;
 static uint64_t         now_time;
 static uint64_t         prev_time;
 static uint64_t         idle_time;
 static bool             mute = false;
+
+static cfloat           samples_buf[RADIO_SAMPLES*2];
+
+typedef struct __attribute__((__packed__)) {
+    uint32_t lo_freq;
+    uint8_t flow_fmt;
+    uint8_t flow_seq_n: 4;
+    uint8_t flow_seq_total: 4;
+    uint8_t vary_freq: 1;
+    uint8_t fft_dec: 3;
+    uint32_t _pad1: 12;
+    uint32_t _pad2;
+} flow_info_t;
 
 #define WITH_RADIO_LOCK(fn) radio_lock(); fn; radio_unlock();
 
@@ -84,6 +98,9 @@ static void recover_processing_audio_inputs() {
     radio_unlock();
 }
 
+static uint32_t min_tx;
+static uint32_t max_tx;
+
 bool radio_tick() {
     if (now_time < prev_time) {
         prev_time = now_time;
@@ -95,6 +112,7 @@ bool radio_tick() {
         prev_time = now_time;
 
         static uint8_t delay;
+        static bool vary_freq;
 
         if (delay++ > 10) {
             delay = 0;
@@ -103,12 +121,44 @@ bool radio_tick() {
                 low_power_cb(!pack->flag.vext && (pack->vbat <= 60));
             }
         }
-        // printf("%d\n", pack->reserved_3[0]);
-        // printf("%d, %f, %f\n", pack->reserved_3[0],
-        //         *(float*)&pack->reserved_3[1],
-        //         *(float*)&pack->reserved_3[2]);
-        cfloat *samples = (cfloat*)((char *)pack + offsetof(x6100_flow_t, samples));
-        dsp_samples(samples, RADIO_SAMPLES, pack->flag.tx);
+        flow_info_t *flow_info = (flow_info_t*)pack->reserved_3;
+
+        uint32_t base_freq = 0;
+        uint8_t fft_dec = 0;
+        if (base_ver.rev >= 8) {
+            base_freq = flow_info->lo_freq;
+            fft_dec = 1U << flow_info->fft_dec;
+        }
+
+        cfloat *flow_samples = (cfloat*)((char *)pack + offsetof(x6100_flow_t, samples));
+        cfloat *samples;
+        size_t n_samples;
+
+        if (base_ver.rev >= 8) {
+            if (flow_info->flow_fmt == x6100_flow_fp32) {
+                samples = flow_samples;
+                n_samples = RADIO_SAMPLES;
+            } else if (flow_info->flow_fmt == x6100_flow_bf16) {
+                n_samples = RADIO_SAMPLES * 2;
+                uint16_t *u16_flow_samples = (uint16_t*)flow_samples;
+                uint32_t *u32_samples_buf = (uint32_t*)samples_buf;
+                for (size_t i = 0; i < n_samples * 2; i+=4) {
+                    u32_samples_buf[i] = (uint32_t)u16_flow_samples[i] << 16;
+                    u32_samples_buf[i+1] = (uint32_t)u16_flow_samples[i+1] << 16;
+                    u32_samples_buf[i+2] = (uint32_t)u16_flow_samples[i+2] << 16;
+                    u32_samples_buf[i+3] = (uint32_t)u16_flow_samples[i+3] << 16;
+                }
+                samples = samples_buf;
+            }
+        } else {
+            samples = flow_samples;
+            n_samples = RADIO_SAMPLES;
+        }
+        if (flow_info->flow_seq_n == 0) {
+            vary_freq = flow_info->vary_freq;
+        }
+        // printf("%d from %d, freq: %d, vary_freq: %d\n", flow_info->flow_seq_n, seq_total, base_freq, vary_freq);
+        dsp_samples(samples, n_samples, pack->flag.tx, base_freq, flow_info->vary_freq, fft_dec);
 
         switch (state) {
             case RADIO_RX:
@@ -195,7 +245,7 @@ static void * radio_thread(void *arg) {
         now_time = get_time();
 
         if (radio_tick()) {
-            usleep(15000);
+            usleep(2000);
         }
 
         int32_t idle = now_time - idle_time;
@@ -246,8 +296,14 @@ static void on_change_float(Subject *subj, void *user_data) {
 
 static void on_vfo_freq_change(Subject *subj, void *user_data) {
     x6100_vfo_t vfo = (x6100_vfo_t )user_data;
-    int32_t new_val = subject_get_int(subj);
+    int32_t new_val;
+    if (vfo == X6100_VFO_A) {
+        new_val = subject_get_int(cfg_cur.band->vfo_a.freq.val);
+    } else {
+        new_val = subject_get_int(cfg_cur.band->vfo_b.freq.val);
+    }
     int32_t shift = cfg_transverter_get_shift(new_val);
+    shift += subject_get_int(cfg_cur.band->if_shift.val);
     WITH_RADIO_LOCK(x6100_control_vfo_freq_set(vfo, new_val - shift));
     LV_LOG_USER("Radio set vfo %i freq=%i (%i)", vfo, new_val, new_val - shift);
 }
@@ -383,8 +439,35 @@ void on_change_comp_ratio(Subject *subj, void *user_data) {
         x6100_control_comp_level_set((x6100_comp_level_t)(ratio - 2));
         radio_unlock();
     }
-
 }
+
+void on_fw_zoom_change(Subject *subj, void *user_data) {
+    uint8_t zoom = subject_get_int(subj);
+    uint8_t val = 0;
+    while (zoom > 1) {
+        val++;
+        zoom >>= 1;
+    }
+    WITH_RADIO_LOCK(x6100_control_fftdec_set(val));
+}
+
+void on_if_shift_change(Subject *subj, void *user_data) {
+    int32_t shift = subject_get_int(subj);
+    int32_t cur_freq = subject_get_int(cfg_cur.fg_freq);
+
+    LV_LOG_USER("Shift: %d, cur_freq: %d\n", shift, cur_freq);
+    if (shift != 0) {
+        radio_lock();
+        x6100_control_if_shift_freq_set(shift);
+        x6100_control_if_shift_set(true);
+        radio_unlock();
+    } else {
+        WITH_RADIO_LOCK(x6100_control_if_shift_set(false));
+    }
+    x6100_vfo_t vfo = subject_get_int(cfg_cur.band->vfo.val);
+    on_vfo_freq_change(NULL, (void*)vfo);
+}
+
 
 void base_control_command(Subject *subj, void *user_data) {
     uint32_t val = subject_get_int(subj);
@@ -409,6 +492,13 @@ void radio_init() {
     if (!x6100_flow_init())
         return;
 
+    base_ver = x6100_control_get_base_ver();
+
+    // Enable center mode by default (old behavior)
+    if ((util_compare_version(base_ver, (x6100_base_ver_t){1, 1, 9, 0}) >= 0) || (base_ver.rev >= 8)) {
+        x6100_control_if_shift_set(false);
+    }
+
     x6100_gpio_set(x6100_pin_morse_key, 1);     /* Morse key off */
 
     pack = malloc(sizeof(x6100_flow_t));
@@ -432,6 +522,8 @@ void radio_init() {
     subject_add_observer_and_call(cfg_cur.band->split.val, on_change_uint8, x6100_control_split_set);
     subject_add_observer_and_call(cfg_cur.band->rfg.val, on_change_uint8, x6100_control_rfg_set);
 
+    subject_add_observer_and_call(cfg_cur.band->if_shift.val, on_if_shift_change, NULL);
+
     subject_add_observer(cfg_cur.agc, update_agc_time, NULL);
     subject_add_observer_and_call(cfg_cur.mode, update_agc_time, NULL);
 
@@ -441,7 +533,7 @@ void radio_init() {
     subject_add_observer_and_call(cfg.vol.val, on_change_uint8, x6100_control_rxvol_set);
     subject_add_observer_and_call(cfg.sql.val, on_change_uint8, x6100_control_sql_set);
     subject_add_observer_and_call(cfg.pwr.val, on_change_float, x6100_control_txpwr_set);
-    subject_add_observer_and_call(cfg.output_gain.val, on_change_float, x6100_control_output_gain_set);
+    subject_add_observer_and_call(cfg.output_gain.val, on_change_float, custom_cfg_set_gain_offset);
     subject_add_observer_and_call(cfg.atu_enabled.val, on_change_uint8, x6100_control_atu_set);
     subject_add_observer_and_call(cfg_cur.atu->network, on_atu_network_change, NULL);
     subject_add_observer_and_call(cfg.comp.val, on_change_comp_ratio, NULL);
@@ -477,6 +569,10 @@ void radio_init() {
     subject_add_observer_and_call(cfg.nr.val, on_change_uint8, x6100_control_nr_set);
     subject_add_observer_and_call(cfg.nr_level.val, on_change_uint8, x6100_control_nr_level_set);
 
+    if ((util_compare_version(base_ver, (x6100_base_ver_t){1, 1, 9, 0}) >= 0) || (base_ver.rev >= 8)) {
+        subject_add_observer_and_call(cfg_cur.zoom, on_fw_zoom_change, NULL);
+    }
+
     x6100_control_charger_set(params.charger.x == RADIO_CHARGER_ON);
     x6100_control_bias_drive_set(params.bias_drive);
     x6100_control_bias_final_set(params.bias_final);
@@ -494,6 +590,10 @@ void radio_init() {
     x6100_control_linein_set(params.line_in);
     x6100_control_lineout_set(params.line_out);
     x6100_control_cmd(x6100_monilevel, params.moni);
+
+    if (base_ver.rev >= 8) {
+        custom_cfg_set_flow_fmt(x6100_flow_bf16);
+    }
 
     prev_time = get_time();
     idle_time = prev_time;

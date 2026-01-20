@@ -156,6 +156,7 @@ void styles_init(themes_t theme) {
     lv_style_set_clip_corner(&waterfall_style, true);
     lv_style_set_width(&waterfall_style, 800);
     lv_style_set_x(&waterfall_style, 0);
+    lv_style_set_pad_all(&waterfall_style, 0);
 
     /* Buttons */
     lv_style_init(&btn_style);

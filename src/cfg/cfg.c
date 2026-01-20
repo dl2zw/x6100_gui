@@ -102,6 +102,8 @@ cfg_mfk_mode_t cfg_encoder_mfk_modes[] = {
     MFK_ANT,
     MFK_RIT,
     MFK_XIT,
+
+    MFK_IF_SHIFT,
 };
 
 

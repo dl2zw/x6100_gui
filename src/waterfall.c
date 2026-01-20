@@ -28,6 +28,12 @@
 #define DEFAULT_MAX S9_20
 #define WIDTH 800
 
+typedef struct {
+    uint8_t values[WATERFALL_NFFT];
+    uint32_t center_freq;
+    uint32_t width;
+} wf_data_row_t;
+
 static lv_obj_t         *obj;
 static lv_obj_t         *img;
 
@@ -44,13 +50,13 @@ static float            grid_max = DEFAULT_MAX;
 static lv_img_dsc_t     *frame;
 static uint8_t          delay = 0;
 
-static int32_t          *freq_offsets;
+static wf_data_row_t    *wf_rows;
 static uint16_t         last_row_id;
-static uint8_t          *waterfall_cache;
 
 static int32_t          radio_center_freq = 0;
 static int32_t          wf_center_freq = 0;
 static int32_t          lo_offset = 0;
+static int32_t          if_shift = 0;
 
 static uint8_t          refresh_period = 1;
 static uint8_t          refresh_counter = 0;
@@ -59,10 +65,12 @@ static uint8_t          zoom = 1;
 
 static void refresh_waterfall( void * arg);
 static void draw_middle_line();
+static void update_middle_line();
 static void redraw_cb(lv_event_t * e);
 static void on_zoom_changed(Subject *subj, void *user_data);
 static void on_fg_freq_change(Subject *subj, void *user_data);
 static void on_lo_offset_change(Subject *subj, void *user_data);
+static void on_if_shift_changed(Subject *subj, void *user_data);
 static void on_grid_min_change(Subject *subj, void *user_data);
 static void on_grid_max_change(Subject *subj, void *user_data);
 
@@ -82,9 +90,10 @@ lv_obj_t * waterfall_init(lv_obj_t * parent) {
     lv_style_set_line_color(&middle_line_style, lv_color_hex(0xAAAAAA));
     lv_style_set_line_opa(&middle_line_style, LV_OPA_60);
     lv_style_set_blend_mode(&middle_line_style, LV_BLEND_MODE_ADDITIVE);
+    lv_style_set_pad_all(&middle_line_style, 0);
 
     subject_add_delayed_observer(cfg_cur.zoom, on_zoom_changed, NULL);
-    on_zoom_changed(cfg_cur.zoom, NULL);
+    subject_add_delayed_observer(cfg_cur.band->if_shift.val, on_if_shift_changed, NULL);
 
     subject_add_observer_and_call(cfg_cur.lo_offset, on_lo_offset_change, NULL);
     subject_add_observer(cfg.auto_level_enabled.val, on_grid_min_change, NULL);
@@ -99,8 +108,8 @@ static void scroll_down() {
     last_row_id = (last_row_id + 1) % height;
 }
 
-void waterfall_data(float *data_buf, uint16_t size, bool tx) {
-    if (delay)
+void waterfall_data(float *data_buf, uint16_t size, bool tx, uint32_t base_freq, uint32_t width_hz) {
+    if (delay && (base_freq == 0))
     {
         delay--;
         return;
@@ -115,8 +124,11 @@ void waterfall_data(float *data_buf, uint16_t size, bool tx) {
         min = grid_min;
         max = grid_max;
     }
-
-    freq_offsets[last_row_id] = radio_center_freq + lo_offset;
+    if (base_freq == 0) {
+        base_freq = radio_center_freq + lo_offset;
+    }
+    wf_rows[last_row_id].center_freq = base_freq;
+    wf_rows[last_row_id].width = width_hz;
 
     for (uint16_t x = 0; x < size; x++) {
         float       v = (data_buf[x] - min) / (max - min);
@@ -128,7 +140,7 @@ void waterfall_data(float *data_buf, uint16_t size, bool tx) {
         }
 
         uint8_t id = v * 255;
-        waterfall_cache[last_row_id * size + x] = id;
+        wf_rows[last_row_id].values[x] = id;
     }
     scheduler_put_noargs(refresh_waterfall);
 }
@@ -160,24 +172,26 @@ void waterfall_set_height(lv_coord_t h) {
     lv_obj_align(img, LV_ALIGN_CENTER, 0, 0);
     lv_img_set_src(img, frame);
 
-    freq_offsets = malloc(height * sizeof(*freq_offsets));
+    wf_rows = calloc(height, sizeof(*wf_rows));
     for (size_t i = 0; i < height; i++) {
-        freq_offsets[i] = radio_center_freq;
+        wf_rows[i].center_freq = radio_center_freq;
+        memset(wf_rows[i].values, 0, WATERFALL_NFFT);
     }
     last_row_id = 0;
-    waterfall_cache = malloc(WATERFALL_NFFT * height);
-    memset(waterfall_cache, 0, WATERFALL_NFFT * height);
 
     lv_obj_add_event_cb(img, do_scroll_cb, LV_EVENT_DRAW_POST_END, NULL);
 
     waterfall_min_max_reset();
     band_info_init(obj);
     draw_middle_line();
+    on_zoom_changed(cfg_cur.zoom, NULL);
+    on_if_shift_changed(cfg_cur.band->if_shift.val, NULL);
 }
 
 static void middle_line_cb(lv_event_t * event) {
     if (params.waterfall_center_line.x && lv_obj_has_flag(middle_line, LV_OBJ_FLAG_HIDDEN)) {
         lv_obj_clear_flag(middle_line, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_set_pos(middle_line, 600, 0);
         return;
     }
     if (!params.waterfall_center_line.x && !lv_obj_has_flag(middle_line, LV_OBJ_FLAG_HIDDEN)) {
@@ -228,47 +242,64 @@ void waterfall_refresh_period_set(uint8_t k) {
     refresh_period = k;
 }
 
+
+#define LERP_INTERP_FRAC 8
+static inline void lerp_row(wf_data_row_t *row_data, uint32_t dst_center_freq, uint32_t dst_width_hz, uint8_t *dst) {
+    // Skip empty rows at start
+    if (!row_data->width) {
+        memset(dst, 0, WIDTH);
+        return;
+    }
+    uint32_t src_start = row_data->center_freq - row_data->width / 2;
+    uint32_t src_end = src_start + row_data->width;
+
+    uint32_t dst_start = dst_center_freq - dst_width_hz / 2;
+    uint32_t dst_end = dst_start + dst_width_hz;
+
+    if ((src_start > dst_end) || (src_end < dst_start)) {
+        // No overlap
+        memset(dst, 0, WIDTH);
+        return;
+    }
+
+    uint32_t dst_half_width_hz = dst_width_hz / 2;
+    for (size_t i = 0; i < WIDTH; i++) {
+        int32_t freq = dst_center_freq + (dst_width_hz * i + dst_half_width_hz) / WIDTH - dst_half_width_hz;
+        // src pos is multiplied by 8
+        int32_t src_pos = (freq - src_start) * (WATERFALL_NFFT * LERP_INTERP_FRAC) / row_data->width;
+        int32_t src_pos_int = src_pos / LERP_INTERP_FRAC;
+        if ((src_pos_int < 0) || (src_pos_int >= (WATERFALL_NFFT - 2))) {
+            dst[i] = 0;
+        } else {
+            int16_t v0 = row_data->values[src_pos_int];
+            int16_t v1 = row_data->values[src_pos_int + 1];
+            v0 += ((v1 - v0) * (src_pos - (src_pos_int * LERP_INTERP_FRAC))) / LERP_INTERP_FRAC;
+            dst[i] = v0;
+        }
+    }
+}
+
 static void redraw_cb(lv_event_t * e) {
     int32_t src_x_offset;
     uint16_t src_y, src_x0, dst_y, dst_x;
 
     uint8_t current_zoom = 1;
+    uint32_t bandwidth = width_hz;
     if (params.waterfall_zoom.x) {
         current_zoom = zoom;
+        bandwidth /= zoom;
     }
-
     lv_color_t black = lv_color_black();
     lv_color_t px_color;
-
-    // Closest left id for screen pixel
-    uint16_t x0_arr[WIDTH];
-    // Actual point offset, multiplied by 8
-    uint8_t x0_dist[WIDTH];
-    for (uint16_t i = 0; i < WIDTH; i++) {
-        // Position on screen, center x is 0
-        float rel_screen_position = (((float) i + 0.5) / WIDTH) - 0.5f;
-        float src_px = ((rel_screen_position / current_zoom) + 0.5f) * WATERFALL_NFFT + 0.5f;
-        x0_arr[i] = src_px;
-        x0_dist[i] = (src_px - x0_arr[i]) * 8;
-    }
+    uint8_t dst[WIDTH];
 
     for (src_y = 0; src_y < height; src_y++) {
+        wf_data_row_t row_data = wf_rows[src_y];
         dst_y = ((height - src_y + last_row_id) % height);
-        src_x_offset = (freq_offsets[src_y] - wf_center_freq) * WATERFALL_NFFT / width_hz;
-        if ((src_x_offset > WATERFALL_NFFT) || (src_x_offset < -WATERFALL_NFFT)) {
-            memset((lv_color_t *)frame->data + dst_y * WIDTH, 0, WIDTH * PX_BYTES);
-        } else {
-            for (dst_x = 0; dst_x < WIDTH; dst_x++) {
-                src_x0 = x0_arr[dst_x] - src_x_offset;
-                if ((src_x0 < 0) || (src_x0 >= WATERFALL_NFFT - 1)) {
-                    px_color = black;
-                } else {
-                    uint8_t * y0_p = waterfall_cache + (src_y * WATERFALL_NFFT + src_x0);
-                    uint8_t y = *y0_p + ((x0_dist[dst_x] * (*(y0_p+1) - *y0_p)) >> 3);
-                    px_color = (lv_color_t)wf_palette[y];
-                }
-                *((lv_color_t*)frame->data + (dst_y * WIDTH + dst_x)) = px_color;
-            }
+
+        lerp_row(&row_data, wf_center_freq, bandwidth, dst);
+        for (size_t i = 0; i < WIDTH; i++) {
+            *((lv_color_t*)frame->data + (dst_y * WIDTH + i)) = (lv_color_t)wf_palette[dst[i]];
         }
     }
 }
@@ -284,17 +315,30 @@ static void refresh_waterfall( void * arg) {
 
 static void on_zoom_changed(Subject *subj, void *user_data) {
     zoom = subject_get_int(subj);
-    lv_style_set_line_width(&middle_line_style, zoom / 2 + 2);
+    update_middle_line();
+}
+
+static void on_if_shift_changed(Subject *subj, void *user_data) {
+    delay = 2;
+    if_shift = subject_get_int(subj);
+    radio_center_freq = subject_get_int(cfg_cur.fg_freq) - if_shift;
+    update_middle_line();
 }
 
 static void on_fg_freq_change(Subject *subj, void *user_data) {
     delay = 2;
-    radio_center_freq = subject_get_int(subj);
+    radio_center_freq = subject_get_int(subj) - if_shift;
 }
 
 static void on_lo_offset_change(Subject *subj, void *user_data) {
     lo_offset = subject_get_int(subj);
 }
+
+static void update_middle_line() {
+    lv_obj_set_pos(middle_line, if_shift * zoom * WIDTH / width_hz, 0);
+    lv_style_set_line_width(&middle_line_style, zoom / 2 + 2);
+}
+
 static void on_grid_min_change(Subject *subj, void *user_data) {
     if (!subject_get_int(cfg.auto_level_enabled.val)) {
         grid_min = subject_get_int(cfg_cur.band->grid.min.val);

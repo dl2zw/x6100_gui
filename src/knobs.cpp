@@ -228,6 +228,7 @@ static std::map<int, Control *> mfk_controls = {
     {MFK_ANT, new ControlSubjInt("Ant", &cfg.ant_id.val)},
     {MFK_RIT, new ControlSubjInt("RIT", &cfg.rit.val)},
     {MFK_XIT, new ControlSubjInt("XIT", &cfg.xit.val)},
+    {MFK_IF_SHIFT, new ControlSubjInt("IF shift", &cfg_cur.band->if_shift.val)},
 
     {MFK_DNF, new ControlSubjOnOff("Notch filter", &cfg.dnf.val)},
     {MFK_DNF_CENTER, new ControlSubjInt("DNF center", &cfg.dnf_center.val)},

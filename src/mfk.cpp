@@ -12,6 +12,7 @@
 #include "voice.h"
 #include "util.h"
 #include "knobs.h"
+#include "dsp.h"
 
 #include <vector>
 
@@ -20,7 +21,6 @@ extern "C" {
     #include "spectrum.h"
     #include "waterfall.h"
     #include "msg.h"
-    #include "dsp.h"
     #include "radio.h"
     #include "rtty.h"
     #include "info.h"
@@ -60,7 +60,12 @@ void mfk_update(int16_t diff, bool voice) {
         case MFK_SPECTRUM_FACTOR:
             i = subject_get_int(cfg_cur.zoom);
             if (diff != 0) {
-                i = clip(i + diff, 1, 8);
+                if (diff > 0) {
+                    i <<= diff;
+                } else {
+                    i >>= -diff;
+                }
+                i = clip(i, 1, 8);
                 subject_set_int(cfg_cur.zoom, i);
             }
             text_msg("#%3X Spectrum zoom: x%i", color, i);
@@ -560,6 +565,28 @@ void mfk_update(int16_t diff, bool voice) {
                 voice_say_bool("Teletype reverse", b);
             } else if (voice) {
                 voice_say_text_fmt("Teletype reverse switcher");
+            }
+            break;
+
+        case MFK_IF_SHIFT:
+            {
+                x6100_base_ver_t base_ver = x6100_control_get_base_ver();
+                if ((util_compare_version(base_ver, (x6100_base_ver_t){1, 1, 9, 0}) >= 0) || (base_ver.rev >= 8)) {
+                    i = subject_get_int(cfg_cur.band->if_shift.val);
+                    if (diff) {
+                        i = clip(i + diff * 100, -50000, 50000);
+                        subject_set_int(cfg_cur.band->if_shift.val, i);
+                    }
+                    text_msg("#%3X IF shift: %i Hz", color, i);
+
+                    if (diff) {
+                        voice_say_int("IF shift", i);
+                    } else if (voice) {
+                        voice_say_text_fmt("IF shift control");
+                    }
+                } else {
+                    msg_update_text_fmt("IF shift is not supported");
+                }
             }
             break;
 

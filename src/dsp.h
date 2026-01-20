@@ -14,6 +14,7 @@
 
 #include "cfg/subjects.h"
 #include <liquid/liquid.h>
+#include <map>
 
 extern "C" {
 #endif
@@ -32,14 +33,17 @@ extern "C" {
 #ifdef __cplusplus
 
 class ChunkedSpgram {
+    static std::map<int32_t, cfloat*> w_cache;
+
     size_t   nfft;
-    size_t   chunk_size;
-    size_t   buffer_size;
-    windowcf buffer;
+    size_t   chunk_size=0;
+    size_t   window_size=0;
+    size_t   buffer_size=0;
+    windowcf buffer=NULL;
     fftplan  fft;
     cfloat  *buf_time;
     cfloat  *buf_freq;
-    cfloat  *w;
+    cfloat  *w=NULL;
     float   *psd;
     bool     accumulate     = true;
     float    alpha          = 1.0f;
@@ -47,13 +51,17 @@ class ChunkedSpgram {
     size_t   num_transforms = 0;
     size_t   num_samples    = 0;
 
+    void setup_buffer();
+    void setup_window();
+    cfloat* get_cached_window(size_t window_size);
+
   public:
-    ChunkedSpgram(size_t chunk_size, size_t nfft, size_t buffer_size=0);
+    ChunkedSpgram(size_t nfft);
     ~ChunkedSpgram();
     void set_alpha(float val);
     void clear();
     void reset();
-    void execute_block(cfloat *block);
+    void execute_block(cfloat *block, size_t n_samples);
     void get_psd_mag(float *psd);
     void get_psd(float *psd, bool linear=false);
 };
@@ -62,7 +70,7 @@ extern "C" {
 #endif
 
 void dsp_init();
-void dsp_samples(cfloat *buf_samples, uint16_t size, bool tx);
+void dsp_samples(cfloat *buf_samples, uint16_t size, bool tx, uint32_t base_freq, bool vary_freq, uint8_t fft_dec);
 void dsp_reset();
 
 float dsp_get_spectrum_beta();

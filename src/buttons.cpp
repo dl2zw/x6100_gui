@@ -71,6 +71,7 @@ static const char * agc_hang_label_getter();
 static const char * agc_knee_label_getter();
 static const char * agc_slope_label_getter();
 static const char * comp_label_getter();
+static const char * if_shift_label_getter();
 
 static const char * key_speed_label_getter();
 static const char * key_volume_label_getter();
@@ -187,6 +188,7 @@ static button_item_t btn_agc_hang  = {.type     = BTN_TEXT_FN,
 static button_item_t btn_agc_knee  = make_btn(agc_knee_label_getter, MFK_AGC_KNEE, &cfg.agc_knee.val);
 static button_item_t btn_agc_slope = make_btn(agc_slope_label_getter, MFK_AGC_SLOPE, &cfg.agc_slope.val);
 static button_item_t btn_comp      = make_btn(comp_label_getter, MFK_COMP, &cfg.comp.val);
+static button_item_t btn_if_shift  = make_btn(if_shift_label_getter, MFK_IF_SHIFT, &cfg_cur.band->if_shift.val);
 
 /* MEM */
 
@@ -332,14 +334,18 @@ static buttons_page_t page_vol_2 = {
 };
 
 /* MFK pages */
-static button_item_t btn_mfk_p1 = make_page_btn("(MFK 1:2)", "MFK|page 1");
-static button_item_t btn_mfk_p2 = make_page_btn("(MFK 2:2)", "MFK|page 2");
+static button_item_t btn_mfk_p1 = make_page_btn("(MFK 1:3)", "MFK|page 1");
+static button_item_t btn_mfk_p2 = make_page_btn("(MFK 2:3)", "MFK|page 2");
+static button_item_t btn_mfk_p3 = make_page_btn("(MFK 2:3)", "MFK|page 3");
 
 static buttons_page_t page_mfk_1 = {
     {&btn_mfk_p1, &btn_rit, &btn_xit, &btn_zoom, &btn_ant}
 };
 static buttons_page_t page_mfk_2 = {
     {&btn_mfk_p2, &btn_agc_hang, &btn_agc_knee, &btn_agc_slope, &btn_comp}
+};
+static buttons_page_t page_mfk_3 = {
+    {&btn_mfk_p3, &btn_if_shift}
 };
 
 /* MEM pages */
@@ -419,6 +425,7 @@ buttons_group_t buttons_group_gen = {
     &page_vol_2,
     &page_mfk_1,
     &page_mfk_2,
+    &page_mfk_3,
 };
 
 buttons_group_t buttons_group_app = {
@@ -463,7 +470,7 @@ static struct {
 
 void buttons_init(lv_obj_t *parent) {
 
-    if (x6100_control_get_patched_revision() < 3) {
+    if (x6100_control_get_base_ver().rev < 3) {
         // Hide DNF auto button
         page_dfn_1.items[4] = NULL;
     }
@@ -867,6 +874,12 @@ static const char * agc_slope_label_getter() {
 static const char * comp_label_getter() {
     static char buf[22];
     sprintf(buf, "Comp:\n%s", params_comp_str_get(subject_get_int(cfg.comp.val)));
+    return buf;
+}
+
+static const char * if_shift_label_getter() {
+    static char buf[22];
+    sprintf(buf, "IF shift:\n%d", subject_get_int(cfg_cur.band->if_shift.val));
     return buf;
 }
 

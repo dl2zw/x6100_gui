@@ -106,6 +106,8 @@ void cfg_band_params_init(sqlite3 *database) {
     fill_band_cfg_item(&cfg_band.split, subject_create_int(false), "split", band_id);
     fill_band_cfg_item(&cfg_band.rfg, subject_create_int(100), "rfg", band_id);
 
+    fill_band_cfg_item(&cfg_band.if_shift, subject_create_int(0), "if_shift", band_id);
+
     subject_add_observer(cfg_band.vfo_a.freq.val, on_ab_freq_change, &cfg_band.vfo_a.freq);
     subject_add_observer(cfg_band.vfo_b.freq.val, on_ab_freq_change, &cfg_band.vfo_b.freq);
 
