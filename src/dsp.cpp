@@ -51,6 +51,7 @@ static uint8_t       spectrum_factor = 1;
 static firdecim_crcf spectrum_decim_rx;
 static firdecim_crcf spectrum_decim_tx;
 static bool          waterfall_fft_decim = false;
+static float         zoom_level_offset = 0.0f;
 
 static ChunkedSpgram *spectrum_sg_rx;
 static ChunkedSpgram *spectrum_sg_tx;
@@ -339,7 +340,7 @@ static void process_samples(cfloat *buf_samples, uint16_t size, firdecim_crcf sp
 static bool update_spectrum(ChunkedSpgram *sp_sg, uint64_t now, bool tx) {
     if ((now - spectrum_time > spectrum_fps_ms)) {
         sp_sg->get_psd(spectrum_psd);
-        liquid_vectorf_addscalar(spectrum_psd, SPECTRUM_NFFT, DB_OFFSET, spectrum_psd);
+        liquid_vectorf_addscalar(spectrum_psd, SPECTRUM_NFFT, DB_OFFSET + zoom_level_offset, spectrum_psd);
         // Decrease beta for high zoom
         float new_beta = powf(spectrum_beta, ((float)spectrum_factor - 1.0f) / 2.0f + 1.0f);
         lpf_block(spectrum_psd_filtered, spectrum_psd, new_beta, SPECTRUM_NFFT);
@@ -357,8 +358,7 @@ static bool update_waterfall(ChunkedSpgram *wf_sg, uint64_t now, bool tx, uint32
         for (size_t i = 0; i < WATERFALL_NFFT; i++) {
             waterfall_psd[i] = 10.0f * log10f(waterfall_psd_lin[i]);
         }
-
-        liquid_vectorf_addscalar(waterfall_psd, WATERFALL_NFFT, DB_OFFSET, waterfall_psd);
+        liquid_vectorf_addscalar(waterfall_psd, WATERFALL_NFFT, DB_OFFSET + zoom_level_offset, waterfall_psd);
         uint32_t width_hz = 100000;
         if (waterfall_fft_decim) {
             width_hz /= spectrum_factor;
@@ -476,9 +476,11 @@ static void update_zoom(int32_t new_zoom) {
 }
 
 static void on_zoom_change(Subject *subj, void *user_data) {
-    if (base_ver.rev < 8) {
-        int32_t new_zoom = subject_get_int(subj);
+    int32_t new_zoom = subject_get_int(subj);
+    if ((base_ver.rev < 8) && (util_compare_version(base_ver, (x6100_base_ver_t){1, 1, 9, 0}) < 0)) {
         update_zoom(new_zoom);
+    } else {
+        zoom_level_offset = log2f(new_zoom) * 3.0f;
     }
 }
 
