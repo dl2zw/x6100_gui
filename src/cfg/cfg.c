@@ -317,9 +317,6 @@ static int init_params_cfg(sqlite3 *db) {
     fill_cfg_item(&cfg.rit, subject_create_int(0), "rit");
     fill_cfg_item(&cfg.xit, subject_create_int(0), "xit");
 
-    fill_cfg_item(&cfg.tx_i_offset, subject_create_int(0), "tx_i_offset");
-    fill_cfg_item(&cfg.tx_q_offset, subject_create_int(0), "tx_q_offset");
-
     /* UI */
     fill_cfg_item(&cfg.auto_level_enabled, subject_create_int(true), "auto_level_enabled");
     fill_cfg_item_float(&cfg.auto_level_offset, subject_create_float(0.0f), 0.5f, "auto_level_offset");

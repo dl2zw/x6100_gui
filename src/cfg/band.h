@@ -31,6 +31,9 @@ typedef struct {
         cfg_item_t max;
     } grid;
     cfg_item_t if_shift;
+
+    cfg_item_t tx_i_offset;
+    cfg_item_t tx_q_offset;
 } cfg_band_t;
 
 void cfg_band_set_freq_for_vfo(x6100_vfo_t vfo, int32_t freq);

@@ -10,6 +10,7 @@
 
 #include "voice.h"
 #include "dsp.h"
+#include <vector>
 
 extern "C" {
 
@@ -74,6 +75,8 @@ static lv_obj_t     *year;
 static lv_obj_t     *hour;
 static lv_obj_t     *min;
 static lv_obj_t     *sec;
+
+static std::vector<Observer*> observers;
 
 static button_item_t btn_general = {
     .type  = BTN_TEXT,
@@ -1613,10 +1616,17 @@ static void tx_iq_offset_update_cb(lv_event_t * e) {
     subject_set_int(subj, val * TX_OFFSET_SCALE);
 }
 
+static void on_iq_change(Subject *subj, void *user_data) {
+    lv_obj_t *slider = (lv_obj_t*)user_data;
+    lv_slider_set_value(slider, subject_get_int(subj) / TX_OFFSET_SCALE, LV_ANIM_OFF);
+    lv_event_send(slider, LV_EVENT_VALUE_CHANGED, NULL);
+}
 
 static uint8_t make_tx_offset(uint8_t row) {
     lv_obj_t    *obj;
     lv_obj_t    *cell;
+    lv_obj_t    *slider;
+    Observer    *observer;
 
     cell = lv_label_create(grid);
 
@@ -1631,9 +1641,12 @@ static uint8_t make_tx_offset(uint8_t row) {
     lv_obj_clear_flag(cell, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_center(cell);
 
-    slider_with_text(cell, subject_get_int(cfg.tx_i_offset.val) / TX_OFFSET_SCALE,
+    slider = slider_with_text(cell, subject_get_int(cfg_cur.band->tx_i_offset.val) / TX_OFFSET_SCALE,
         -10000 / TX_OFFSET_SCALE, 10000 / TX_OFFSET_SCALE, 1,
-        SMALL_3 - 110, "%d", tx_iq_offset_update_cb, (void*)cfg.tx_i_offset.val);
+        SMALL_3 - 110, "%d", tx_iq_offset_update_cb, (void*)cfg_cur.band->tx_i_offset.val);
+
+    observer = cfg_cur.band->tx_i_offset.val->subscribe(on_iq_change, slider);
+    observers.push_back(observer);
 
     cell = lv_obj_create(grid);
 
@@ -1643,9 +1656,12 @@ static uint8_t make_tx_offset(uint8_t row) {
     lv_obj_clear_flag(cell, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_center(cell);
 
-    slider_with_text(cell, subject_get_int(cfg.tx_q_offset.val) / TX_OFFSET_SCALE,
+    slider = slider_with_text(cell, subject_get_int(cfg_cur.band->tx_q_offset.val) / TX_OFFSET_SCALE,
         -10000 / TX_OFFSET_SCALE, 10000 / TX_OFFSET_SCALE, 1,
-        SMALL_3 - 110, "%d", tx_iq_offset_update_cb, (void*)cfg.tx_q_offset.val);
+        SMALL_3 - 110, "%d", tx_iq_offset_update_cb, (void*)cfg_cur.band->tx_q_offset.val);
+
+    observer = cfg_cur.band->tx_q_offset.val->subscribe(on_iq_change, slider);
+    observers.push_back(observer);
 
     return row + 1;
 }
@@ -1886,6 +1902,11 @@ static void construct_cb(lv_obj_t *parent) {
 static void destruct_cb() {
     grid_delete();
     grid = NULL;
+    for (auto& observer : observers) {
+        delete observer;
+    }
+    observers.clear();
+
 }
 
 static void key_cb(lv_event_t * e) {

@@ -95,9 +95,6 @@ typedef struct {
     cfg_item_t rit;
     cfg_item_t xit;
 
-    cfg_item_t tx_i_offset;
-    cfg_item_t tx_q_offset;
-
     /* UI */
     cfg_item_t auto_level_enabled;
     cfg_item_t auto_level_offset;

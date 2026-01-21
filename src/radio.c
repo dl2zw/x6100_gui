@@ -468,6 +468,23 @@ void on_if_shift_change(Subject *subj, void *user_data) {
     on_vfo_freq_change(NULL, (void*)vfo);
 }
 
+void on_band_change(Subject *subj, void *user_data) {
+    // Workaround for bug with ignored IQ offset on band change from BASE
+    int32_t i_val = subject_get_int(cfg_cur.band->tx_i_offset.val);
+    int32_t q_val = subject_get_int(cfg_cur.band->tx_q_offset.val);
+    if (i_val == (int32_t)x6100_control_get(x6100_txiofs)) {
+        i_val++;
+    }
+    radio_lock();
+    x6100_control_tx_i_offset_set(i_val);
+    radio_unlock();
+    if (q_val == (int32_t)x6100_control_get(x6100_txqofs)) {
+        q_val ++;
+    }
+    radio_lock();
+    x6100_control_tx_q_offset_set(q_val);
+    radio_unlock();
+}
 
 void base_control_command(Subject *subj, void *user_data) {
     uint32_t val = subject_get_int(subj);
@@ -524,6 +541,11 @@ void radio_init() {
 
     subject_add_observer_and_call(cfg_cur.band->if_shift.val, on_if_shift_change, NULL);
 
+    subject_add_observer_and_call(cfg_cur.band->tx_i_offset.val, on_change_int32, x6100_control_tx_i_offset_set);
+    subject_add_observer_and_call(cfg_cur.band->tx_q_offset.val, on_change_int32, x6100_control_tx_q_offset_set);
+
+    subject_add_observer(cfg.band_id.val, on_band_change, NULL);
+
     subject_add_observer(cfg_cur.agc, update_agc_time, NULL);
     subject_add_observer_and_call(cfg_cur.mode, update_agc_time, NULL);
 
@@ -542,9 +564,6 @@ void radio_init() {
 
     subject_add_observer_and_call(cfg.rit.val, base_control_command, (void*)x6100_rit);
     subject_add_observer_and_call(cfg.xit.val, base_control_command, (void*)x6100_xit);
-
-    subject_add_observer_and_call(cfg.tx_i_offset.val, on_change_int32, x6100_control_tx_i_offset_set);
-    subject_add_observer_and_call(cfg.tx_q_offset.val, on_change_int32, x6100_control_tx_q_offset_set);
 
     subject_add_observer_and_call(cfg.key_tone.val, on_change_uint16, x6100_control_key_tone_set);
     subject_add_observer_and_call(cfg.key_speed.val, on_change_uint8, x6100_control_key_speed_set);
