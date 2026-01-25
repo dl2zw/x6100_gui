@@ -126,6 +126,9 @@ void waterfall_data(float *data_buf, uint16_t size, bool tx, uint32_t base_freq,
     }
     if (base_freq == 0) {
         base_freq = radio_center_freq + lo_offset;
+    } else if (tx) {
+        // New patched firmware
+        base_freq += lo_offset;
     }
     wf_rows[last_row_id].center_freq = base_freq;
     wf_rows[last_row_id].width = width_hz;
@@ -335,8 +338,9 @@ static void on_lo_offset_change(Subject *subj, void *user_data) {
 }
 
 static void update_middle_line() {
-    lv_obj_set_pos(middle_line, if_shift * zoom * WIDTH / width_hz, 0);
-    lv_style_set_line_width(&middle_line_style, zoom / 2 + 2);
+    lv_coord_t width = zoom / 2 + 2;
+    lv_obj_set_pos(middle_line, if_shift * zoom * WIDTH / width_hz + width / 2, 0);
+    lv_style_set_line_width(&middle_line_style, width);
 }
 
 static void on_grid_min_change(Subject *subj, void *user_data) {

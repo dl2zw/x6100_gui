@@ -113,7 +113,11 @@ static void spectrum_draw_cb(lv_event_t *e) {
     lv_coord_t w = lv_obj_get_width(obj);
     lv_coord_t h = lv_obj_get_height(obj);
 
-    x1 += lo_offset * zoom_factor * w / width_hz;
+    if (spectrum_tx) {
+        x1 += (lo_offset + if_shift) * zoom_factor * w / width_hz;
+    } else {
+        x1 += lo_offset * zoom_factor * w / width_hz;
+    }
 
     lv_point_t main_a, main_b;
     lv_point_t peak_a, peak_b;
@@ -178,10 +182,12 @@ static void spectrum_draw_cb(lv_event_t *e) {
     int32_t f1 = (w * filter_from) / w_hz;
     int32_t f2 = (w * filter_to) / w_hz;
 
-    x1 += if_shift * zoom_factor * w / width_hz;
+    if (!spectrum_tx) {
+        x1 += if_shift * zoom_factor * w / width_hz;
+    }
 
     area.x1 = x1 + w / 2 + f1;
-    area.y1 = y1 + h - visor_height;
+    area.y1 = y1;
     area.x2 = x1 + w / 2 + f2;
     area.y2 = y1 + h;
 
@@ -206,7 +212,7 @@ static void spectrum_draw_cb(lv_event_t *e) {
         }
 
         area.x1 = x1 + w / 2 + f1;
-        area.y1 = y1 + h - visor_height;
+        area.y1 = y1;
         area.x2 = x1 + w / 2 + f2;
         area.y2 = y1 + h;
 
@@ -223,7 +229,7 @@ static void spectrum_draw_cb(lv_event_t *e) {
         f2 = (int64_t)(w * to) / w_hz;
 
         main_a.x = x1 + w / 2 + f1;
-        main_a.y = y1 + h - visor_height;
+        main_a.y = y1;
         main_b.x = main_a.x;
         main_b.y = y1 + h;
         lv_draw_line(draw_ctx, &main_line_dsc, &main_a, &main_b);
@@ -238,7 +244,7 @@ static void spectrum_draw_cb(lv_event_t *e) {
     main_line_dsc.width = 1;
 
     main_a.x = x1 + w / 2;
-    main_a.y = y1 + h - visor_height;
+    main_a.y = y1;
     main_b.x = main_a.x;
     main_b.y = y1 + h;
 
