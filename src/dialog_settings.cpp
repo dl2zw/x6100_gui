@@ -1666,10 +1666,10 @@ static uint8_t make_tx_offset(uint8_t row) {
     return row + 1;
 }
 
-/* Output gain */
+/* TX codec gain */
 #define OUTPUT_GAIN_STEP 0.2f
 
-static void output_gain_update_cb(lv_event_t * e) {
+static void codec_gain_update_cb(lv_event_t * e) {
     lv_obj_t *obj = lv_event_get_target(e);
     float val = (float)lv_slider_get_value(obj) * OUTPUT_GAIN_STEP;
 
@@ -1679,13 +1679,13 @@ static void output_gain_update_cb(lv_event_t * e) {
     subject_set_float(cfg.output_gain.val, val);
 }
 
-static uint8_t make_output_gain(uint8_t row) {
+static uint8_t make_codec_gain(uint8_t row) {
     lv_obj_t    *obj;
     lv_obj_t    *cell;
 
     cell = lv_label_create(grid);
 
-    lv_label_set_text(cell, "Output gain");
+    lv_label_set_text(cell, "TX codec gain");
     lv_obj_set_grid_cell(cell, LV_GRID_ALIGN_START, 0, 1, LV_GRID_ALIGN_CENTER, row, 1);
 
     cell = lv_obj_create(grid);
@@ -1698,7 +1698,79 @@ static uint8_t make_output_gain(uint8_t row) {
 
     slider_with_text(cell, subject_get_float(cfg.output_gain.val),
         -25.0f, 25.0f, OUTPUT_GAIN_STEP,
-        SMALL_6 - 120, "%0.1f", output_gain_update_cb);
+        SMALL_6 - 120, "%0.1f", codec_gain_update_cb);
+
+    return row + 1;
+}
+
+/* TX codec DAC gain */
+
+static void band_out_gain_update_cb(lv_event_t * e) {
+    lv_obj_t *obj = lv_event_get_target(e);
+    float val = (float)lv_slider_get_value(obj) * OUTPUT_GAIN_STEP;
+
+    lv_obj_t *slider_label = (lv_obj_t *)lv_obj_get_user_data(obj);
+    char *fmt = (char *)lv_obj_get_user_data(slider_label);
+    lv_label_set_text_fmt(slider_label, fmt, val);
+    subject_set_float(cfg_cur.band->dac_offset.val, val);
+    printf("out gain: %f\n", val);
+}
+
+static void on_dac_gain_change(Subject *subj, void *user_data) {
+    lv_obj_t *slider = (lv_obj_t*)user_data;
+    lv_slider_set_value(slider, subject_get_float(subj) / OUTPUT_GAIN_STEP, LV_ANIM_OFF);
+    lv_event_send(slider, LV_EVENT_VALUE_CHANGED, NULL);
+}
+
+static uint8_t band_out_gain_correction(uint8_t row) {
+    lv_obj_t    *obj;
+    lv_obj_t    *cell;
+    lv_obj_t    *slider;
+
+    cell = lv_label_create(grid);
+
+    lv_label_set_text(cell, "Band output gain corr");
+    lv_obj_set_grid_cell(cell, LV_GRID_ALIGN_START, 0, 1, LV_GRID_ALIGN_CENTER, row, 1);
+
+    cell = lv_obj_create(grid);
+
+    lv_obj_set_size(cell, SMALL_6, 56);
+    lv_obj_set_grid_cell(cell, LV_GRID_ALIGN_START, 1, 3, LV_GRID_ALIGN_CENTER, row, 1);
+    lv_obj_set_style_bg_opa(cell, LV_OPA_TRANSP, LV_PART_MAIN);
+    lv_obj_clear_flag(cell, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_center(cell);
+
+    slider = slider_with_text(cell, subject_get_float(cfg_cur.band->dac_offset.val),
+        -6.0f, 6.0f, OUTPUT_GAIN_STEP,
+        SMALL_6 - 120, "%0.1f", band_out_gain_update_cb);
+
+    Observer *observer = cfg_cur.band->dac_offset.val->subscribe(on_dac_gain_change, slider);
+    observers.push_back(observer);
+
+    return row + 1;
+}
+
+
+uint8_t make_fm_emphasis(uint8_t row) {
+    lv_obj_t    *obj;
+    uint8_t     col = 0;
+
+    obj = lv_label_create(grid);
+
+    lv_label_set_text(obj, "FM pre/de-emphasis");
+    lv_obj_set_grid_cell(obj, LV_GRID_ALIGN_START, col++, 1, LV_GRID_ALIGN_CENTER, row, 1);
+
+    obj = lv_obj_create(grid);
+
+    lv_obj_set_size(obj, SMALL_3, 56);
+    lv_obj_set_grid_cell(obj, LV_GRID_ALIGN_START, 4, 3, LV_GRID_ALIGN_CENTER, row, 1);
+    lv_obj_set_style_bg_opa(obj, LV_OPA_TRANSP, LV_PART_MAIN);
+    lv_obj_clear_flag(obj, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_center(obj);
+
+    obj = switch_bool(obj, cfg.fm_emphasis.val);
+
+    lv_obj_set_width(obj, SMALL_3 - 30);
 
     return row + 1;
 }
@@ -1827,7 +1899,14 @@ static void make_general_page() {
     row = make_delimiter(row);
 
     if (base_ver.rev >= 3) {
-        row = make_output_gain(row);
+        row = make_codec_gain(row);
+        row = make_delimiter(row);
+    }
+
+    if (base_ver.rev >= 8) {
+        row = band_out_gain_correction(row);
+        row = make_delimiter(row);
+        row = make_fm_emphasis(row);
         row = make_delimiter(row);
     }
 

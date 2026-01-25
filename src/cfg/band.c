@@ -12,6 +12,7 @@
 #include <aether_radio/x6100_control/control.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <math.h>
 #include <string.h>
 
 static sqlite3      *db;
@@ -53,6 +54,7 @@ static void on_cur_att_change(Subject *subj, void *user_data);
 static void on_cur_pre_change(Subject *subj, void *user_data);
 
 static void fill_band_cfg_item(cfg_item_t *item, Subject * val, const char * db_name, int pk);
+static void fill_band_cfg_item_float(cfg_item_t *item, Subject * val, const float db_scale, const char * db_name, int pk);
 
 void cfg_band_params_init(sqlite3 *database) {
     init_db(database);
@@ -109,6 +111,8 @@ void cfg_band_params_init(sqlite3 *database) {
     fill_band_cfg_item(&cfg_band.if_shift, subject_create_int(0), "if_shift", band_id);
     fill_band_cfg_item(&cfg_band.tx_i_offset, subject_create_int(0), "tx_i_offset", band_id);
     fill_band_cfg_item(&cfg_band.tx_q_offset, subject_create_int(0), "tx_q_offset", band_id);
+
+    fill_band_cfg_item_float(&cfg_band.dac_offset, subject_create_float(0.0f), 0.1f, "dac_offset", band_id);
 
     subject_add_observer(cfg_band.vfo_a.freq.val, on_ab_freq_change, &cfg_band.vfo_a.freq);
     subject_add_observer(cfg_band.vfo_b.freq.val, on_ab_freq_change, &cfg_band.vfo_b.freq);
@@ -388,7 +392,7 @@ void cfg_band_params_load_all() {
 
 int cfg_band_params_load_item(cfg_item_t *item) {
     enum data_type dtype = subject_get_dtype(item->val);
-    if (dtype != DTYPE_INT) {
+    if ((dtype != DTYPE_INT) && (dtype != DTYPE_FLOAT)) {
         LV_LOG_WARN("Unknown item %s dtype: %u, can't load", item->db_name, dtype);
         return -1;
     }
@@ -417,8 +421,19 @@ int cfg_band_params_load_item(cfg_item_t *item) {
 
     rc = sqlite3_step(stmt);
     if (rc == SQLITE_ROW) {
-        int_val = sqlite3_column_int(stmt, 0);
-        rc = 0;
+        if (dtype == DTYPE_INT) {
+            int_val = sqlite3_column_int(stmt, 0);
+            rc = 0;
+        } else if (dtype == DTYPE_FLOAT) {
+            float val;
+            if (item->db_scale != 0) {
+                val = sqlite3_column_int(stmt, 0) * item->db_scale;
+            } else {
+                val = sqlite3_column_double(stmt, 0);
+            }
+            subject_set_float(item->val, val);
+            rc = 0;
+        }
     } else {
         if (strcmp(item->db_name, "vfob_freq") == 0) {
             LV_LOG_USER("Copy vfoa freq to vfob");
@@ -435,7 +450,7 @@ int cfg_band_params_load_item(cfg_item_t *item) {
     sqlite3_clear_bindings(stmt);
     pthread_mutex_unlock(&read_mutex);
 
-    if (rc == 0) {
+    if ((rc == 0) || (dtype == DTYPE_INT)) {
         LV_LOG_USER("Loaded %s=%i (pk=%i)", item->db_name, int_val, item->pk);
         if ((strcmp(item->db_name, "vfoa_freq") == 0) || (strcmp(item->db_name, "vfob_freq") == 0)) {
             if ((int_val >= band_info->start_freq) && (int_val <= band_info->stop_freq) ||
@@ -467,6 +482,7 @@ int cfg_band_params_save_item(cfg_item_t *item) {
     pthread_mutex_lock(&write_mutex);
     int     rc;
     int32_t int_val;
+    float float_val;
 
     rc = sqlite3_bind_text(stmt, sqlite3_bind_parameter_index(stmt, ":name"), item->db_name, strlen(item->db_name), 0);
     if (rc != SQLITE_OK) {
@@ -498,6 +514,14 @@ int cfg_band_params_save_item(cfg_item_t *item) {
                 rc = sqlite3_bind_int(stmt, val_index, int_val);
             }
             break;
+        case DTYPE_FLOAT:
+            float_val = subject_get_float(item->val);
+            if (item->db_scale != 0) {
+                rc = sqlite3_bind_int(stmt, val_index, roundf(float_val / item->db_scale));
+            } else {
+                rc = sqlite3_bind_double(stmt, val_index, float_val);
+            }
+            break;
         default:
             LV_LOG_WARN("Unknown item %s dtype: %u, will not save", item->db_name, dtype);
             sqlite3_reset(stmt);
@@ -515,7 +539,11 @@ int cfg_band_params_save_item(cfg_item_t *item) {
     if (rc != SQLITE_DONE) {
         LV_LOG_ERROR("Failed save item %s: %s", item->db_name, sqlite3_errmsg(db));
     } else {
-        LV_LOG_USER("Saved %s=%i (pk=%i)", item->db_name, int_val, item->pk);
+        if (dtype == DTYPE_INT) {
+            LV_LOG_USER("Saved %s=%i (pk=%i)", item->db_name, int_val, item->pk);
+        } else if (dtype = DTYPE_FLOAT) {
+            LV_LOG_USER("Saved %s=%f (pk=%i)", item->db_name, float_val, item->pk);
+        }
         rc = 0;
     }
     sqlite3_reset(stmt);
@@ -767,5 +795,10 @@ static void on_cur_pre_change(Subject *subj, void *user_data) {
 
 static void fill_band_cfg_item(cfg_item_t *item, Subject * val, const char * db_name, int pk) {
     fill_cfg_item(item, val, db_name);
+    item->pk = pk;
+}
+
+static void fill_band_cfg_item_float(cfg_item_t *item, Subject * val, const float db_scale, const char * db_name, int pk) {
+    fill_cfg_item_float(item, val, db_scale, db_name);
     item->pk = pk;
 }

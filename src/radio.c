@@ -18,7 +18,6 @@
 #include "dialog_swrscan.h"
 #include "cw.h"
 #include "pubsub_ids.h"
-#include "custom_config.h"
 
 #include <aether_radio/x6100_control/low/flow.h>
 #include <aether_radio/x6100_control/low/gpio.h>
@@ -72,6 +71,12 @@ typedef struct __attribute__((__packed__)) {
         lv_msg_send(MSG_PARAM_CHANGED, NULL); \
     }
 
+
+typedef enum {
+    x6100_flow_fp32 = 0,
+    x6100_flow_bf16,
+} x6100_flow_fmt_t;
+
 static void radio_lock() {
     pthread_mutex_lock(&control_mux);
 }
@@ -81,6 +86,7 @@ static void radio_unlock() {
     pthread_mutex_unlock(&control_mux);
 }
 
+#include <math.h>
 /**
  * Restore "listening" of main board and USB soundcard after ATU
  */
@@ -158,6 +164,12 @@ bool radio_tick() {
             vary_freq = flow_info->vary_freq;
         }
         // printf("%d from %d, freq: %d, vary_freq: %d\n", flow_info->flow_seq_n, seq_total, base_freq, vary_freq);
+        // union {
+        //     uint32_t i;
+        //     float f;
+        // } fuint = {flow_info->_pad2};
+        // printf("audio rms: %f\n", 20.0f * log10f(fuint.f));
+        // printf("audio mul: %.*g\n", fuint.f);
         dsp_samples(samples, n_samples, pack->flag.tx, base_freq, flow_info->vary_freq, fft_dec);
 
         switch (state) {
@@ -258,6 +270,12 @@ static void * radio_thread(void *arg) {
     }
 }
 
+static void on_change_bool(Subject *subj, void *user_data) {
+    int32_t new_val = subject_get_int(subj);
+    void (*fn)(bool) = (void (*)(bool))user_data;
+    WITH_RADIO_LOCK(fn(new_val));
+}
+
 static void on_change_int8(Subject *subj, void *user_data) {
     int32_t new_val = subject_get_int(subj);
     void (*fn)(int8_t) = (void (*)(int8_t))user_data;
@@ -269,6 +287,7 @@ static void on_change_uint8(Subject *subj, void *user_data) {
     void (*fn)(uint8_t) = (void (*)(uint8_t))user_data;
     WITH_RADIO_LOCK(fn(new_val));
 }
+
 
 static void on_change_uint16(Subject *subj, void *user_data) {
     int32_t new_val = subject_get_int(subj);
@@ -555,7 +574,8 @@ void radio_init() {
     subject_add_observer_and_call(cfg.vol.val, on_change_uint8, x6100_control_rxvol_set);
     subject_add_observer_and_call(cfg.sql.val, on_change_uint8, x6100_control_sql_set);
     subject_add_observer_and_call(cfg.pwr.val, on_change_float, x6100_control_txpwr_set);
-    subject_add_observer_and_call(cfg.output_gain.val, on_change_float, custom_cfg_set_gain_offset);
+    subject_add_observer_and_call(cfg.output_gain.val, on_change_float, x6100_control_adc_dac_gain_set);
+    subject_add_observer_and_call(cfg_cur.band->dac_offset.val, on_change_float, x6100_control_dac_gain_set);
     subject_add_observer_and_call(cfg.atu_enabled.val, on_change_uint8, x6100_control_atu_set);
     subject_add_observer_and_call(cfg_cur.atu->network, on_atu_network_change, NULL);
     subject_add_observer_and_call(cfg.comp.val, on_change_comp_ratio, NULL);
@@ -564,6 +584,7 @@ void radio_init() {
 
     subject_add_observer_and_call(cfg.rit.val, base_control_command, (void*)x6100_rit);
     subject_add_observer_and_call(cfg.xit.val, base_control_command, (void*)x6100_xit);
+    subject_add_observer_and_call(cfg.fm_emphasis.val, on_change_bool, x6100_control_fm_emp);
 
     subject_add_observer_and_call(cfg.key_tone.val, on_change_uint16, x6100_control_key_tone_set);
     subject_add_observer_and_call(cfg.key_speed.val, on_change_uint8, x6100_control_key_speed_set);
@@ -611,7 +632,7 @@ void radio_init() {
     x6100_control_cmd(x6100_monilevel, params.moni);
 
     if (base_ver.rev >= 8) {
-        custom_cfg_set_flow_fmt(x6100_flow_bf16);
+        x6100_control_bf16_flow_set(true);
     }
 
     prev_time = get_time();

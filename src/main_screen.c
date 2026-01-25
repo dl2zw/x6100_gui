@@ -86,6 +86,7 @@ static void toggle_atu_enabled();
 
 static void on_fg_freq_change(Subject *subj, void *user_data);
 static void update_freq_boundaries(Subject *subj, void *user_data);
+static void update_zoom_on_if_shift_change(Subject *subj, void *user_data);
 
 
 void mem_load(uint16_t id) {
@@ -1108,6 +1109,9 @@ lv_obj_t * main_screen() {
     subject_add_delayed_observer(cfg_cur.bg_freq, on_fg_freq_change, NULL);
     on_fg_freq_change(cfg_cur.bg_freq, NULL);
 
+    subject_add_delayed_observer(cfg_cur.band->if_shift.val, update_zoom_on_if_shift_change, NULL);
+    subject_add_delayed_observer(cfg_cur.zoom, update_zoom_on_if_shift_change, NULL);
+
     return obj;
 }
 
@@ -1198,4 +1202,18 @@ static void update_freq_boundaries(Subject *subj, void *user_data) {
 
     split_freq(f + half_width, &mhz, &khz, &hz);
     lv_label_set_text_fmt(freq[2], "#%03X %i.%03i", color, mhz, khz);
+}
+
+static void update_zoom_on_if_shift_change(Subject *subj, void *user_data) {
+    int32_t half_width = 40000;
+    int32_t new_if_shift = subject_get_int(cfg_cur.band->if_shift.val);
+    uint32_t zoom = subject_get_int(cfg_cur.zoom);
+    uint32_t new_zoom = zoom;
+    while ((abs(new_if_shift) * new_zoom / half_width) && (new_zoom > 1))
+    {
+        new_zoom >>= 1;
+    }
+    if (new_zoom != zoom) {
+        subject_set_int(cfg_cur.zoom, new_zoom);
+    }
 }

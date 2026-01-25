@@ -381,6 +381,8 @@ static void update_s_meter() {
         center = WATERFALL_NFFT / 2;
         from = center + filter_from * WATERFALL_NFFT / bw;
         to = center + filter_to * WATERFALL_NFFT / bw;
+        from = LV_MAX(from, 0);
+        to = LV_MIN(to, WATERFALL_NFFT - 1);
 
         float sum_db, sum;
         sum = 0.0f;

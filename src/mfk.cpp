@@ -574,7 +574,7 @@ void mfk_update(int16_t diff, bool voice) {
                 if ((util_compare_version(base_ver, (x6100_base_ver_t){1, 1, 9, 0}) >= 0) || (base_ver.rev >= 8)) {
                     i = subject_get_int(cfg_cur.band->if_shift.val);
                     if (diff) {
-                        i = clip(i + diff * 100, -50000, 50000);
+                        i = clip(i + diff * 100, -40000, 40000);
                         subject_set_int(cfg_cur.band->if_shift.val, i);
                     }
                     text_msg("#%3X IF shift: %i Hz", color, i);
