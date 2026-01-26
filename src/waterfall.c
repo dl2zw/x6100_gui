@@ -133,16 +133,21 @@ void waterfall_data(float *data_buf, uint16_t size, bool tx, uint32_t base_freq,
     wf_rows[last_row_id].center_freq = base_freq;
     wf_rows[last_row_id].width = width_hz;
 
+    float temp_buf[size];
+    liquid_vectorf_addscalar(data_buf, size, -min, temp_buf);
+    liquid_vectorf_mulscalar(temp_buf, size, 255.0f / (max - min), temp_buf);
     for (uint16_t x = 0; x < size; x++) {
-        float       v = (data_buf[x] - min) / (max - min);
+        float   v = temp_buf[x];
+        uint8_t id;
 
         if (v < 0.0f) {
-            v = 0.0f;
-        } else if (v > 1.0f) {
-            v = 1.0f;
+            id = 0;
+        } else if (v > 255.0f) {
+            id = 255;
+        } else {
+            id = v;
         }
 
-        uint8_t id = v * 255;
         wf_rows[last_row_id].values[x] = id;
     }
     scheduler_put_noargs(refresh_waterfall);
