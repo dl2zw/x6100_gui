@@ -597,9 +597,11 @@ static Frame *process_req(const Frame *req) {
                         // PWR
                         if (data_size == 1) {
                             resp->set_payload_len(4);
-                            to_bcd_be(&resp->data[1], subject_get_float(cfg.pwr.val) * 255 / 10, 3);
+                            to_bcd_be(&resp->data[1], roundf(subject_get_float(cfg.pwr.val) * 255 / 10), 3);
                         } else if (data_size == 3) {
-                            subject_set_float(cfg.pwr.val, (from_bcd_be(&req->data[1], 3) * 100 / 255) / 10.0f);
+                            float pwr = from_bcd_be(&req->data[1], 3) * 10.0f / 255.0f;
+                            pwr = LV_MIN(pwr, 10.0f);
+                            subject_set_float(cfg.pwr.val, pwr);
                         }
                         break;
                     case 0x15:
