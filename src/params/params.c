@@ -38,7 +38,7 @@ params_t params = {
     .spectrum_peak          = { .x = true,  .name = "spectrum_peak"},
     .spectrum_peak_hold     = { .x = 5,  .min=1, .max=10, .name = "spectrum_peak_hold"},
     .spectrum_peak_speed    = { .x = 5,  .min=1, .max=30, .name = "spectrum_peak_speed"},
-    .waterfall_smooth_scroll= { .x = true,  .name = "waterfall_smooth_scroll",  .voice = "Waterfall smooth scroll"},
+    .waterfall_smooth_scroll= { .x = false,  .name = "waterfall_smooth_scroll",  .voice = "Waterfall smooth scroll"},
     .waterfall_center_line  = { .x = true,  .name = "waterfall_center_line",    .voice = "Waterfall center line"},
     .waterfall_zoom         = { .x = true,  .name = "waterfall_zoom",           .voice = "Waterfall zoom"},
     .mag_freq               = { .x = true,  .name = "mag_freq",                 .voice = "Magnification of frequency" },

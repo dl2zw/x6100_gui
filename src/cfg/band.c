@@ -423,6 +423,19 @@ int cfg_band_params_load_item(cfg_item_t *item) {
     if (rc == SQLITE_ROW) {
         if (dtype == DTYPE_INT) {
             int_val = sqlite3_column_int(stmt, 0);
+            LV_LOG_USER("Loaded %s=%i (pk=%i)", item->db_name, int_val, item->pk);
+            if ((strcmp(item->db_name, "vfoa_freq") == 0) || (strcmp(item->db_name, "vfob_freq") == 0)) {
+                if ((int_val >= band_info->start_freq) && (int_val <= band_info->stop_freq) ||
+                    (band_info->id == BAND_UNDEFINED)) {
+                    subject_set_int(item->val, int_val);
+                } else {
+                    LV_LOG_USER("Freq %lu for %s (band_id: %i) outside boundaries, db value ignored", int_val,
+                                item->db_name, item->pk);
+                    subject_set_int(item->val, band_info->start_freq);
+                }
+            } else {
+                subject_set_int(item->val, int_val);
+            }
             rc = 0;
         } else if (dtype == DTYPE_FLOAT) {
             float val;
@@ -431,6 +444,7 @@ int cfg_band_params_load_item(cfg_item_t *item) {
             } else {
                 val = sqlite3_column_double(stmt, 0);
             }
+            LV_LOG_USER("Loaded %s=%f (pk=%i)", item->db_name, val, item->pk);
             subject_set_float(item->val, val);
             rc = 0;
         }
@@ -450,21 +464,6 @@ int cfg_band_params_load_item(cfg_item_t *item) {
     sqlite3_clear_bindings(stmt);
     pthread_mutex_unlock(&read_mutex);
 
-    if ((rc == 0) || (dtype == DTYPE_INT)) {
-        LV_LOG_USER("Loaded %s=%i (pk=%i)", item->db_name, int_val, item->pk);
-        if ((strcmp(item->db_name, "vfoa_freq") == 0) || (strcmp(item->db_name, "vfob_freq") == 0)) {
-            if ((int_val >= band_info->start_freq) && (int_val <= band_info->stop_freq) ||
-                (band_info->id == BAND_UNDEFINED)) {
-                subject_set_int(item->val, int_val);
-            } else {
-                LV_LOG_USER("Freq %lu for %s (band_id: %i) outside boundaries, db value ignored", int_val,
-                            item->db_name, item->pk);
-                subject_set_int(item->val, band_info->start_freq);
-            }
-        } else {
-            subject_set_int(item->val, int_val);
-        }
-    }
     return rc;
 }
 
