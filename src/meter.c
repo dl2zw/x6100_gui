@@ -21,11 +21,11 @@
 static int16_t          min_db = S1;
 static int16_t          max_db = S9_40;
 
-static int16_t          meter_db = S1;
+static float            meter_db = S1;
 static float            meter_db_raw = S1;
 static float            noise_level = S_MIN;
 
-static int16_t          meter_peak = S1;
+static float            meter_peak = S1;
 static int64_t          meter_peak_time;
 static int64_t          now;
 
@@ -72,7 +72,7 @@ static void meter_draw_cb(lv_event_t * e) {
     // lv_coord_t h = lv_obj_get_height(obj) - 1;
 
     uint8_t     slice_db = 3;
-    uint8_t     slices_total = (max_db - min_db) / slice_db;
+    uint8_t     slices_total = (max_db - min_db) / slice_db + 1;
     uint8_t     slice_w = w / slices_total;
     uint8_t     slice_spacing = slice_w * 2 / 10;
 
@@ -82,7 +82,7 @@ static void meter_draw_cb(lv_event_t * e) {
 
     rect_dsc.bg_opa = LV_OPA_80;
 
-    uint32_t count = (meter_db - min_db + slice_db) / slice_db;
+    uint32_t count = (meter_db - min_db) / slice_db + 1.5f;
     count = LV_MIN(count, slices_total);
 
     area.y1 = y1 - 5;
@@ -109,8 +109,8 @@ static void meter_draw_cb(lv_event_t * e) {
     }
 
     /* Peak */
-    if (meter_peak > meter_db) {
-        area.x1 = x1 + 30  - slice_w / 2 + slice_w * ((meter_peak - min_db) / slice_db);
+    if (meter_peak > meter_db + 1.5f * slice_db) {
+        area.x1 = x1 + 30 - slice_w / 2 + slice_w * (uint8_t)((meter_peak - min_db) / slice_db + 0.5f) + slice_spacing / 2;
         area.x2 = area.x1 + slice_w - slice_spacing;
         rect_dsc.bg_opa = LV_OPA_50;
         rect_dsc.bg_color = lv_color_hex(0xAAAAAA);
