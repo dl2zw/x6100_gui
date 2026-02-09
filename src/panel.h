@@ -8,6 +8,10 @@
 
 #pragma once
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #include <unistd.h>
 #include <stdint.h>
 
@@ -18,3 +22,7 @@ lv_obj_t * panel_init(lv_obj_t *parent);
 void panel_hide();
 void panel_visible();
 void panel_add_text(const char * text);
+
+#ifdef __cplusplus
+}
+#endif
