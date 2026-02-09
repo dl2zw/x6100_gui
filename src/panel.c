@@ -124,11 +124,13 @@ void panel_visible() {
     }
 
     if (on) {
-        strcpy(buf, "");
-        last_line = (char *) &buf;
-        lv_label_set_text_static(obj, buf);
-        lv_obj_clear_flag(obj, LV_OBJ_FLAG_HIDDEN);
-        knobs_display(false);
+        if (lv_obj_has_flag(obj, LV_OBJ_FLAG_HIDDEN)) {
+            strcpy(buf, "");
+            last_line = (char *) &buf;
+            lv_label_set_text_static(obj, buf);
+            lv_obj_clear_flag(obj, LV_OBJ_FLAG_HIDDEN);
+            knobs_display(false);
+        }
     } else {
         lv_obj_add_flag(obj, LV_OBJ_FLAG_HIDDEN);
         knobs_display(true);
