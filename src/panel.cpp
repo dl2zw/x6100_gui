@@ -170,11 +170,11 @@ static void on_freq_change(Subject *subj, void *user_data) {
     }
     lv_anim_del(obj, set_opa);
 
-    // lv_opa_t cur_opa = lv_obj_get_style_opa(obj, 0);
-    // lv_anim_set_ready_cb(&dim_anim, revert_opa);
-    // lv_anim_set_values(&dim_anim, cur_opa, LV_OPA_40);
-    // lv_anim_set_delay(&dim_anim, 0);
-    // lv_anim_start(&dim_anim);
+    lv_opa_t cur_opa = lv_obj_get_style_opa(obj, 0);
+    lv_anim_set_ready_cb(&dim_anim, revert_opa);
+    lv_anim_set_values(&dim_anim, cur_opa, LV_OPA_40);
+    lv_anim_set_delay(&dim_anim, 0);
+    lv_anim_start(&dim_anim);
 
 
 
