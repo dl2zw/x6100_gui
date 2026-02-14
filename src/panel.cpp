@@ -77,10 +77,10 @@ static void panel_update_cb(const char *text) {
             check_lines();
         }
     } else {
-        // lv_txt_get_size(&line_size, last_line, &sony_38, 0, 0, LV_COORD_MAX, 0);
-        // lv_txt_get_size(&text_size, text, &sony_38, 0, 0, LV_COORD_MAX, 0);
+        lv_txt_get_size(&line_size, last_line, &sony_38, 0, 0, LV_COORD_MAX, 0);
+        lv_txt_get_size(&text_size, text, &sony_38, 0, 0, LV_COORD_MAX, 0);
 
-        if (line_size.x + text_size.x > (lv_obj_get_width(obj) - 40)) {
+        if (line_size.x + text_size.x > (lv_obj_get_width(obj) - 20)) {
             strcat(last_line, "\n");
             check_lines();
         }
@@ -175,22 +175,4 @@ static void on_freq_change(Subject *subj, void *user_data) {
     lv_anim_set_values(&dim_anim, cur_opa, LV_OPA_40);
     lv_anim_set_delay(&dim_anim, 0);
     lv_anim_start(&dim_anim);
-
-
-
-
-
-
-
-
-
-    // if (anim_tl) {
-    //     lv_anim_timeline_del(anim_tl);
-    // }
-
-    // lv_anim_timeline_stop(anim_tl);
-    // lv_ani
-    // lv_anim_set_values(&dim_anim, cur_opa, LV_OPA_40);
-    // lv_anim_set_values(&undim_anim, LV_OPA_40, LV_OPA_COVER);
-
 }
