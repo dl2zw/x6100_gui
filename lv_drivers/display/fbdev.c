@@ -16,6 +16,8 @@
 #include <fcntl.h>
 #include <sys/mman.h>
 #include <sys/ioctl.h>
+#include <pthread.h>
+#include <semaphore.h>
 
 #if USE_BSD_FBDEV
 #include <sys/fcntl.h>
@@ -36,6 +38,8 @@
 #ifndef DIV_ROUND_UP
 #define DIV_ROUND_UP(n, d) (((n) + (d) - 1) / (d))
 #endif
+
+#define QUEUE_SIZE 3
 
 /**********************
  *      TYPEDEFS
@@ -58,9 +62,24 @@ struct bsd_fb_fix_info{
     long int smem_len;
 };
 
+struct draw_task {
+    lv_area_t area;
+    lv_color_t color_p[800*480];
+    // lv_color_t *color_p;
+};
+
+struct draw_queue {
+    struct draw_task tasks[QUEUE_SIZE];
+    uint8_t head;
+    uint8_t tail;
+    pthread_mutex_t mut;
+    pthread_cond_t cond;
+};
+
 /**********************
  *  STATIC PROTOTYPES
  **********************/
+static void * flush_thread(void *arg);
 
 /**********************
  *  STATIC VARIABLES
@@ -75,6 +94,9 @@ static struct fb_fix_screeninfo finfo;
 static char *fbp = 0;
 static long int screensize = 0;
 static int fbfd = 0;
+
+static pthread_t thread;
+static struct draw_queue queue = {.head=0, .tail=0,  .mut=PTHREAD_MUTEX_INITIALIZER, .cond=PTHREAD_COND_INITIALIZER};
 
 /**********************
  *      MACROS
@@ -145,7 +167,7 @@ void fbdev_init(void)
     LV_LOG_INFO("%dx%d, %dbpp", vinfo.xres, vinfo.yres, vinfo.bits_per_pixel);
 
     // Figure out the size of the screen in bytes
-    screensize =  finfo.smem_len; //finfo.line_length * vinfo.yres;    
+    screensize =  finfo.smem_len; //finfo.line_length * vinfo.yres;
 
     // Map the device to memory
     fbp = (char *)mmap(0, screensize, PROT_READ | PROT_WRITE, MAP_SHARED, fbfd, 0);
@@ -158,6 +180,8 @@ void fbdev_init(void)
     // This is important for applications that only draw to a subsection of the full framebuffer.
 
     LV_LOG_INFO("The framebuffer device was mapped to memory successfully");
+
+    pthread_create(&thread, NULL, flush_thread, NULL);
 
 }
 
@@ -184,6 +208,62 @@ void fbdev_flush(lv_disp_drv_t * drv, const lv_area_t * area, lv_color_t * color
         return;
     }
 
+    pthread_mutex_lock(&queue.mut);
+    while (((queue.head + 1) % QUEUE_SIZE) == queue.tail) {
+        pthread_cond_wait(&queue.cond, &queue.mut);
+    }
+    struct draw_task *t = &queue.tasks[queue.head];
+
+    // copy data
+    t->area = *area;
+    size_t n_bytes = sizeof(*color_p) * (area->x2 - area->x1 + 1) * (area->y2 - area->y1 + 1);
+    memcpy(t->color_p, color_p, n_bytes);
+    // t->color_p = color_p;
+
+    // Update pointer
+    queue.head = (queue.head + 1) % QUEUE_SIZE;
+    pthread_cond_broadcast(&queue.cond);
+    pthread_mutex_unlock(&queue.mut);
+
+    lv_disp_flush_ready(drv);
+}
+
+void fbdev_get_sizes(uint32_t *width, uint32_t *height, uint32_t *dpi) {
+    if (width)
+        *width = vinfo.xres;
+
+    if (height)
+        *height = vinfo.yres;
+
+    if (dpi && vinfo.height)
+        *dpi = DIV_ROUND_UP(vinfo.xres * 254, vinfo.width * 10);
+}
+
+void fbdev_set_offset(uint32_t xoffset, uint32_t yoffset) {
+    vinfo.xoffset = xoffset;
+    vinfo.yoffset = yoffset;
+}
+
+/**********************
+ *   STATIC FUNCTIONS
+ **********************/
+
+static void rotate_sw(uint32_t *src, uint32_t src_w, uint32_t src_h, uint32_t *dst) {
+    // rotate 90 ccw
+    uint32_t dst_w = src_h;
+    uint32_t dst_h = src_w;
+    for (size_t src_y = 0; src_y < src_h; src_y++)
+    {
+        for (size_t src_x = 0; src_x < src_w; src_x++)
+        {
+            uint32_t dst_x = src_y;
+            uint32_t dst_y = src_w - src_x - 1;
+            dst[dst_y * dst_w + dst_x] = src[src_y * src_w + src_x];
+        }
+    }
+}
+
+static void flush_imp(const lv_area_t * area, lv_color_t * color_p) {
     /*Truncate the area to the screen*/
     int32_t act_x1 = area->x1 < 0 ? 0 : area->x1;
     int32_t act_y1 = area->y1 < 0 ? 0 : area->y1;
@@ -249,28 +329,33 @@ void fbdev_flush(lv_disp_drv_t * drv, const lv_area_t * area, lv_color_t * color
 
     //May be some direct update command is required
     //ret = ioctl(state->fd, FBIO_UPDATE, (unsigned long)((uintptr_t)rect));
-
-    lv_disp_flush_ready(drv);
 }
 
-void fbdev_get_sizes(uint32_t *width, uint32_t *height, uint32_t *dpi) {
-    if (width)
-        *width = vinfo.xres;
+static void * flush_thread(void *arg) {
+    lv_area_t area;
+    lv_color_t color_p[800*480];
 
-    if (height)
-        *height = vinfo.yres;
+    while (true) {
+        pthread_mutex_lock(&queue.mut);
+        while (queue.tail == queue.head) {
+            // Empty
+            pthread_cond_wait(&queue.cond, &queue.mut);
+        }
+        struct draw_task *t = &queue.tasks[queue.tail];
+        queue.tail = (queue.tail + 1) % QUEUE_SIZE;
 
-    if (dpi && vinfo.height)
-        *dpi = DIV_ROUND_UP(vinfo.xres * 254, vinfo.width * 10);
+        rotate_sw(t->color_p, t->area.x2 - t->area.x1 + 1, t->area.y2 - t->area.y1 + 1, color_p);
+
+        area.x1 = t->area.y1;
+        area.x2 = t->area.y2;
+        area.y1 = 800 - t->area.x2;
+        area.y2 = 800 - t->area.x1;
+
+        flush_imp(&area, color_p);
+        pthread_cond_broadcast(&queue.cond);
+        pthread_mutex_unlock(&queue.mut);
+    }
+
 }
-
-void fbdev_set_offset(uint32_t xoffset, uint32_t yoffset) {
-    vinfo.xoffset = xoffset;
-    vinfo.yoffset = yoffset;
-}
-
-/**********************
- *   STATIC FUNCTIONS
- **********************/
 
 #endif
