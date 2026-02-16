@@ -67,7 +67,7 @@ static ChunkedSpgram *waterfall_sg_rx;
 static ChunkedSpgram *waterfall_sg_tx;
 static float          waterfall_psd_lin[WATERFALL_NFFT];
 static float          waterfall_psd[WATERFALL_NFFT];
-static uint8_t        waterfall_fps_ms = (1000 / 25);
+static uint8_t        waterfall_fps_ms = (1000 / 15);
 static uint64_t       waterfall_time;
 
 static cfloat buf_filtered[RADIO_SAMPLES * 2];
