@@ -20,7 +20,8 @@ extern "C" {
 lv_obj_t * panel_init(lv_obj_t *parent);
 
 void panel_hide();
-void panel_visible();
+void panel_clear();
+void panel_update_visibility(bool clear);
 void panel_add_text(const char * text);
 
 #ifdef __cplusplus

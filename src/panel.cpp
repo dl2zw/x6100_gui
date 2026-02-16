@@ -19,22 +19,24 @@ extern "C" {
     #include "params/params.h"
 }
 
-static lv_obj_t           *obj;
-static lv_anim_t           dim_anim;
-static char                buf[1024];
-static char                tmp_buf[1024];
-static char               *last_line;
+static lv_obj_t    *obj;
+static lv_anim_t    dim_anim;
+static char         buf[1024] = "";
+static char        *buf_write = buf;
+static x6100_mode_t prev_mode;
 
-static void update_visibility(Subject *subj, void *user_data);
+static void update_visibility_cb(Subject *subj, void *user_data);
 static void on_freq_change(Subject *subj, void *user_data);
 
 static void set_opa(void * panel_obj, int32_t opa);
 
+
 static void check_lines() {
     char        *second_line = NULL;
-    char        *ptr = (char *) &buf;
+    char        *ptr = buf;
     uint16_t    count = 0;
 
+    // Count lines, store start of 2nd in `second_line`
     while (*ptr) {
         if (*ptr == '\n') {
             count++;
@@ -46,53 +48,41 @@ static void check_lines() {
         ptr++;
     }
 
+    // Too long, cut first line
     if (count > 4) {
-        strcpy(tmp_buf, second_line);
-        strcpy(buf, tmp_buf);
+        memmove(buf, second_line, strlen(second_line) + 1);
+        buf_write = buf + strlen(buf);
     }
-
-    ptr = (char *) &buf;
-
-    while (*ptr) {
-        if (*ptr == '\n') {
-            last_line = ptr + 1;
-        }
-        ptr++;
-    }
-
-    *last_line = '\0';
 }
 
 static void panel_update_cb(const char *text) {
-    lv_point_t line_size;
     lv_point_t text_size;
+    char *old_write;
 
-    if (!last_line) {
+    if (!buf_write) {
         return;
     }
-
-    if (strcmp(text, "\n") == 0) {
-        if (last_line[strlen(last_line) - 1] != '\n') {
-            strcat(last_line, text);
-            check_lines();
-        }
+    old_write = buf_write;
+    // TODO: check len of text is not exceed width
+    buf_write = stpcpy(buf_write, text);
+    // new line text only
+    if (strcmp(buf_write - 2, "\n\n") == 0) {
+        *buf_write-- = '\0';
     } else {
-        lv_txt_get_size(&line_size, last_line, &sony_38, 0, 0, LV_COORD_MAX, 0);
-        lv_txt_get_size(&text_size, text, &sony_38, 0, 0, LV_COORD_MAX, 0);
-
-        if (line_size.x + text_size.x > (lv_obj_get_width(obj) - 20)) {
-            strcat(last_line, "\n");
-            check_lines();
+        lv_txt_get_size(&text_size, buf, &sony_38, 0, 0, LV_COORD_MAX, 0);
+        if (text_size.x > (lv_obj_get_width(obj) - 20)) {
+            *old_write = '\n';
+            buf_write = stpcpy(old_write + 1, text);
         }
-
-        strcat(last_line, text);
     }
-
+    check_lines();
     lv_label_set_text_static(obj, buf);
 }
 
 lv_obj_t * panel_init(lv_obj_t *parent) {
     obj = lv_label_create(parent);
+
+    lv_label_set_text_static(obj, buf);
 
     lv_obj_add_style(obj, &panel_style, 0);
     lv_obj_add_flag(obj, LV_OBJ_FLAG_HIDDEN);
@@ -102,9 +92,12 @@ lv_obj_t * panel_init(lv_obj_t *parent) {
     lv_anim_set_var(&dim_anim, obj);
     lv_anim_set_time(&dim_anim, 200);
 
-    subject_add_delayed_observer(cfg_cur.mode, update_visibility, NULL);
-    subject_add_delayed_observer_and_call(cfg.cw_decoder.val, update_visibility, NULL);
+    prev_mode = (x6100_mode_t)subject_get_int(cfg_cur.mode);
+
+    subject_add_delayed_observer(cfg_cur.mode, update_visibility_cb, NULL);
+    subject_add_delayed_observer_and_call(cfg.cw_decoder.val, update_visibility_cb, NULL);
     subject_add_delayed_observer(cfg_cur.fg_freq, on_freq_change, NULL);
+
     return obj;
 }
 
@@ -117,7 +110,15 @@ void panel_hide() {
     knobs_display(true);
 }
 
-void panel_visible() {
+void panel_clear() {
+    if (lv_obj_has_flag(obj, LV_OBJ_FLAG_HIDDEN) == false) {
+        buf[0] = '\0';
+        buf_write = buf;
+        lv_label_set_text_static(obj, buf);
+    }
+}
+
+void panel_update_visibility(bool clear) {
     x6100_mode_t    mode = (x6100_mode_t)subject_get_int(cfg_cur.mode);
     bool            on = false;
 
@@ -137,9 +138,6 @@ void panel_visible() {
 
     if (on) {
         if (lv_obj_has_flag(obj, LV_OBJ_FLAG_HIDDEN)) {
-            strcpy(buf, "");
-            last_line = (char *) &buf;
-            lv_label_set_text_static(obj, buf);
             lv_obj_clear_flag(obj, LV_OBJ_FLAG_HIDDEN);
             knobs_display(false);
         }
@@ -147,10 +145,28 @@ void panel_visible() {
         lv_obj_add_flag(obj, LV_OBJ_FLAG_HIDDEN);
         knobs_display(true);
     }
+    if (clear) {
+        panel_clear();
+    }
 }
 
-static void update_visibility(Subject *subj, void *user_data) {
-    panel_visible();
+static void update_visibility_cb(Subject *subj, void *user_data) {
+    x6100_mode_t cur_mode = (x6100_mode_t)subject_get_int(cfg_cur.mode);
+    x6100_mode_t tmp_mode = prev_mode;
+    bool clear = true;
+
+    // Prevent clear on preserving CW / CWR mode
+    if (cur_mode == x6100_mode_cwr) {
+        cur_mode = x6100_mode_cw;
+    }
+    if (tmp_mode == x6100_mode_cwr) {
+        tmp_mode = x6100_mode_cw;
+    }
+    if (tmp_mode == cur_mode) {
+        clear = false;
+    }
+    prev_mode = cur_mode;
+    panel_update_visibility(clear);
 }
 
 static void set_opa(void * panel_obj, int32_t opa) {
