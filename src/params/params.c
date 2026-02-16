@@ -413,10 +413,6 @@ void params_init() {
             db = NULL;
         }
 
-        if (rc != SQLITE_OK) {
-            LV_LOG_ERROR("Prepare write");
-        }
-
         rc = sqlite3_prepare_v2(db, "INSERT INTO mode_params(mode, name, val) VALUES(?, ?, ?)", -1, &write_mode_stmt, 0);
 
         if (rc != SQLITE_OK) {

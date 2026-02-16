@@ -266,63 +266,6 @@ void cw_put_audio_samples(unsigned int n, cfloat *samples) {
     }
 }
 
-// bool cw_change_decoder(int16_t df) {
-//     if (df == 0) {
-//         return params.cw_decoder;
-//     }
-
-//     params_lock();
-//     params.cw_decoder = !params.cw_decoder;
-//     params_unlock(&params.dirty.cw_decoder);
-//     lv_msg_send(MSG_PARAM_CHANGED, NULL);
-
-//     panel_visible();
-
-//     return params.cw_decoder;
-// }
-
-// float cw_change_snr(int16_t df) {
-//     if (df == 0) {
-//         return params.cw_decoder_snr;
-//     }
-
-//     float x = params.cw_decoder_snr + df * 0.1f;
-
-//     if (x < 3.0f) {
-//         x = 3.0f;
-//     } else if (x > 30.0f) {
-//         x = 30.0f;
-//     }
-
-//     params_lock();
-//     params.cw_decoder_snr = x;
-//     params_unlock(&params.dirty.cw_decoder_snr);
-//     lv_msg_send(MSG_PARAM_CHANGED, NULL);
-
-//     return params.cw_decoder_snr;
-// }
-
-// float cw_change_peak_beta(int16_t df) {
-//     if (df == 0) {
-//         return params.cw_decoder_peak_beta;
-//     }
-
-//     float x = params.cw_decoder_peak_beta + df * 0.01f;
-
-//     if (x < 0.1f) {
-//         x = 0.1f;
-//     } else if (x > 0.95f) {
-//         x = 0.95f;
-//     }
-
-//     params_lock();
-//     params.cw_decoder_peak_beta = x;
-//     params_unlock(&params.dirty.cw_decoder_peak_beta);
-//     lv_msg_send(MSG_PARAM_CHANGED, NULL);
-
-//     return params.cw_decoder_peak_beta;
-// }
-
 static void on_key_tone_change(Subject *subj, void *user_data) {
     key_tone = static_cast<SubjectT<int32_t>*>(subj)->get();
     dds_dec_init();

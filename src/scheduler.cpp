@@ -38,6 +38,7 @@ void scheduler_put(scheduler_fn_t fn, void * arg, size_t arg_size) {
     }
     item_t item = {fn, arg_copy};
     queue.push(item);
+    return; // cppcheck-suppress memleak
 }
 
 void scheduler_put_noargs(scheduler_fn_t fn) {
