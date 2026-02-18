@@ -251,7 +251,8 @@ void waterfall_refresh_period_set(uint8_t k) {
 }
 
 
-#define LERP_INTERP_FRAC 8
+#define LERP_INTERP_M 3
+#define LERP_INTERP_FRAC (1 << LERP_INTERP_M)
 static inline void lerp_row(wf_data_row_t *row_data, uint32_t dst_center_freq, uint32_t dst_width_hz, uint8_t *dst) {
     // Skip empty rows at start
     if (!row_data->width) {
@@ -274,14 +275,18 @@ static inline void lerp_row(wf_data_row_t *row_data, uint32_t dst_center_freq, u
     for (size_t i = 0; i < WIDTH; i++) {
         int32_t freq = dst_center_freq + (dst_width_hz * i + dst_half_width_hz) / WIDTH - dst_half_width_hz;
         // src pos is multiplied by 8
-        int32_t src_pos = (freq - src_start) * (WATERFALL_NFFT * LERP_INTERP_FRAC) / row_data->width;
-        int32_t src_pos_int = src_pos / LERP_INTERP_FRAC;
-        if ((src_pos_int < 0) || (src_pos_int >= (WATERFALL_NFFT - 2))) {
+        int32_t src_pos = (freq - src_start) * (WATERFALL_NFFT << LERP_INTERP_M) / row_data->width;
+        if (src_pos < 0) {
+            dst[i] = 0;
+            continue;
+        }
+        uint32_t src_pos_int = (uint32_t)src_pos >> LERP_INTERP_M;
+        if (src_pos_int >= (WATERFALL_NFFT - 2)) {
             dst[i] = 0;
         } else {
             int16_t v0 = row_data->values[src_pos_int];
             int16_t v1 = row_data->values[src_pos_int + 1];
-            v0 += ((v1 - v0) * (src_pos - (src_pos_int * LERP_INTERP_FRAC))) / LERP_INTERP_FRAC;
+            v0 += ((v1 - v0) * (src_pos - ((uint32_t)src_pos_int << LERP_INTERP_M))) >> LERP_INTERP_M;
             dst[i] = v0;
         }
     }

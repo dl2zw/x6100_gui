@@ -44,7 +44,8 @@
 rotary_t                    *vol;
 encoder_t                   *mfk;
 
-static lv_color_t           buf[DISP_BUF_SIZE];
+static lv_color_t           buf1[DISP_BUF_SIZE];
+static lv_color_t           buf2[DISP_BUF_SIZE];
 static lv_disp_draw_buf_t   disp_buf;
 static lv_disp_drv_t        disp_drv;
 
@@ -59,15 +60,17 @@ int main(void) {
     event_init();
     usb_devices_monitor_init();
 
-    lv_disp_draw_buf_init(&disp_buf, buf, NULL, DISP_BUF_SIZE);
+    lv_disp_draw_buf_init(&disp_buf, buf1, NULL, DISP_BUF_SIZE);
     lv_disp_drv_init(&disp_drv);
 
     disp_drv.draw_buf   = &disp_buf;
     disp_drv.flush_cb   = fbdev_flush;
-    disp_drv.hor_res    = 480;
-    disp_drv.ver_res    = 800;
-    disp_drv.sw_rotate  = 1;
-    disp_drv.rotated    = LV_DISP_ROT_90;
+    // disp_drv.hor_res    = 480;
+    // disp_drv.ver_res    = 800;
+    disp_drv.hor_res    = 800;
+    disp_drv.ver_res    = 480;
+    // disp_drv.sw_rotate  = 1;
+    // disp_drv.rotated    = LV_DISP_ROT_90;
 
     lv_disp_drv_register(&disp_drv);
 
@@ -108,7 +111,6 @@ int main(void) {
     wifi_power_setup();
     backlight_init();
     cat_init();
-    // panel_visible();
     gps_init();
     if (!qso_log_init()) {
         LV_LOG_ERROR("Can't init QSO log");

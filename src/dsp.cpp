@@ -45,7 +45,8 @@ static iirfilt_cccf dc_block;
 static pthread_mutex_t spectrum_mux = PTHREAD_MUTEX_INITIALIZER;
 
 static x6100_base_ver_t base_ver;
-static bool fw_decim = false;
+static bool fw_decim = false;  // BASE firmware performs a decimation
+static bool fw_dc_blocker = false;  // BASE firmware performs a DC blocker on IQ
 
 static uint8_t       spectrum_factor = 1;
 static firdecim_crcf spectrum_decim_rx;
@@ -66,13 +67,12 @@ static ChunkedSpgram *waterfall_sg_rx;
 static ChunkedSpgram *waterfall_sg_tx;
 static float          waterfall_psd_lin[WATERFALL_NFFT];
 static float          waterfall_psd[WATERFALL_NFFT];
-static uint8_t        waterfall_fps_ms = (1000 / 25);
+static uint8_t        waterfall_fps_ms = (1000 / 15);
 static uint64_t       waterfall_time;
 
 static cfloat buf_filtered[RADIO_SAMPLES * 2];
 
 static uint32_t cur_freq;
-static uint32_t prev_base_freq;
 static uint8_t  psd_delay;
 static uint8_t  min_max_delay;
 
@@ -187,6 +187,10 @@ void ChunkedSpgram::reset() {
     }
 }
 
+bool ChunkedSpgram::ready() {
+    return num_transforms > 0;
+}
+
 void ChunkedSpgram::execute_block(cfloat *chunk, size_t n_samples) {
     if (n_samples != chunk_size) {
         chunk_size = n_samples;
@@ -260,16 +264,19 @@ void dsp_init() {
     } else {
         fw_decim = false;
     }
+    if (base_ver.rev >= 8) {
+        fw_dc_blocker = true;
+    }
 
     waterfall_sg_rx = new ChunkedSpgram(WATERFALL_NFFT);
-    waterfall_sg_rx->set_alpha(SG_ALPHA_WF);
+    waterfall_sg_rx->set_alpha(-1.0f);
     waterfall_sg_tx = new ChunkedSpgram(WATERFALL_NFFT);
-    waterfall_sg_tx->set_alpha(SG_ALPHA_WF);
+    waterfall_sg_tx->set_alpha(-1.0f);
 
     spectrum_sg_rx = new ChunkedSpgram(SPECTRUM_NFFT);
-    spectrum_sg_rx->set_alpha(SG_ALPHA_SP);
+    spectrum_sg_rx->set_alpha(-1.0f);
     spectrum_sg_tx = new ChunkedSpgram(SPECTRUM_NFFT);
-    spectrum_sg_tx->set_alpha(SG_ALPHA_SP);
+    spectrum_sg_tx->set_alpha(-1.0f);
 
     dc_block = iirfilt_cccf_create_dc_blocker(0.005f);
 
@@ -312,10 +319,13 @@ void dsp_reset() {
 
 static void process_samples(cfloat *buf_samples, uint16_t size, firdecim_crcf sp_decim, ChunkedSpgram *sp_sg,
                             ChunkedSpgram *wf_sg, bool tx) {
-    iirfilt_cccf_execute_block(dc_block, buf_samples, size, buf_filtered);
     // Swap I and Q
     for (size_t i = 0; i < size; i++) {
-        buf_filtered[i] = {buf_filtered[i].imag(), buf_filtered[i].real()};
+        buf_filtered[i] = {buf_samples[i].imag(), buf_samples[i].real()};
+    }
+
+    if (!fw_dc_blocker) {
+        iirfilt_cccf_execute_block(dc_block, buf_filtered, size, buf_filtered);
     }
 
     cfloat *samples_for_wf = buf_filtered;
@@ -333,12 +343,13 @@ static void process_samples(cfloat *buf_samples, uint16_t size, firdecim_crcf sp
     } else {
         sp_sg->execute_block(buf_filtered, sp_n_samples);
     }
-
-    wf_sg->execute_block(samples_for_wf, wf_n_samples);
+    if (wf_sg) {
+        wf_sg->execute_block(samples_for_wf, wf_n_samples);
+    }
 }
 
 static bool update_spectrum(ChunkedSpgram *sp_sg, uint64_t now, bool tx) {
-    if ((now - spectrum_time > spectrum_fps_ms)) {
+    if ((now - spectrum_time > spectrum_fps_ms) && sp_sg->ready()) {
         sp_sg->get_psd(spectrum_psd);
         liquid_vectorf_addscalar(spectrum_psd, SPECTRUM_NFFT, DB_OFFSET + zoom_level_offset, spectrum_psd);
         // Decrease beta for high zoom
@@ -346,14 +357,13 @@ static bool update_spectrum(ChunkedSpgram *sp_sg, uint64_t now, bool tx) {
         lpf_block(spectrum_psd_filtered, spectrum_psd, new_beta, SPECTRUM_NFFT);
         spectrum_data(spectrum_psd_filtered, SPECTRUM_NFFT, tx);
         spectrum_time = now;
-        sp_sg->set_alpha(SG_ALPHA_SP);
         return true;
     }
     return false;
 }
 
 static bool update_waterfall(ChunkedSpgram *wf_sg, uint64_t now, bool tx, uint32_t base_freq) {
-    if ((now - waterfall_time > waterfall_fps_ms) && (!psd_delay)) {
+    if ((now - waterfall_time > waterfall_fps_ms) && (!psd_delay) & wf_sg->ready()) {
         wf_sg->get_psd(waterfall_psd_lin, true);
         for (size_t i = 0; i < WATERFALL_NFFT; i++) {
             waterfall_psd[i] = 10.0f * log10f(waterfall_psd_lin[i]);
@@ -365,7 +375,6 @@ static bool update_waterfall(ChunkedSpgram *wf_sg, uint64_t now, bool tx, uint32
         }
         waterfall_data(waterfall_psd, WATERFALL_NFFT, tx, base_freq, width_hz);
         waterfall_time = now;
-        wf_sg->set_alpha(SG_ALPHA_WF);
         return true;
     }
     return false;
@@ -402,6 +411,13 @@ void dsp_samples(cfloat *buf_samples, uint16_t size, bool tx, uint32_t base_freq
         return;
     }
 
+    if (base_freq != 0) {
+        if (cur_freq != base_freq) {
+            cur_freq = base_freq;
+            waterfall_sg_rx->reset();
+        }
+    }
+
     if (fft_dec && (fft_dec != spectrum_factor)) {
         update_zoom(fft_dec);
     }
@@ -424,21 +440,21 @@ void dsp_samples(cfloat *buf_samples, uint16_t size, bool tx, uint32_t base_freq
         sp_sg    = spectrum_sg_rx;
         wf_sg    = waterfall_sg_rx;
     }
-    if (prev_base_freq != base_freq) {
-        prev_base_freq = base_freq;
-        sp_sg->set_alpha(1 - ((1 - SG_ALPHA_SP) * SG_ALPHA_FACTOR));
-        wf_sg->set_alpha(1 - ((1 - SG_ALPHA_WF) * SG_ALPHA_FACTOR));
+    if (vary_freq) {
+        wf_sg = NULL;
     }
     process_samples(buf_samples, size, sp_decim, sp_sg, wf_sg, tx);
     update_spectrum(sp_sg, now, tx);
     pthread_mutex_unlock(&spectrum_mux);
-    if (update_waterfall(wf_sg, now, tx, base_freq)) {
-        update_s_meter();
-        // TODO: skip on disabled auto min/max
-        if (!tx) {
-            dsp_update_min_max(waterfall_psd_lin, WATERFALL_NFFT);
-        } else {
-            min_max_delay = 2;
+    if (wf_sg) {
+        if (update_waterfall(wf_sg, now, tx, base_freq)) {
+            update_s_meter();
+            // TODO: skip on disabled auto min/max
+            if (!tx) {
+                dsp_update_min_max(waterfall_psd_lin, WATERFALL_NFFT);
+            } else {
+                min_max_delay = 2;
+            }
         }
     }
 }
@@ -500,11 +516,9 @@ static void update_cur_mode(Subject *subj, void *user_data) {
 
 static void on_cur_freq_change(Subject *subj, void *user_data) {
     int32_t new_freq = static_cast<SubjectT<int32_t> *>(subj)->get();
-    int32_t diff = new_freq - cur_freq;
-    cur_freq = new_freq;
-    // waterfall_sg_rx->reset();
     if (base_ver.rev < 8) {
         psd_delay = OEM_PSD_DELAY;
+        cur_freq = new_freq;
     } else {
         psd_delay = R8_PSD_DELAY;
     }

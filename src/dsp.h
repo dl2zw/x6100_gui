@@ -61,6 +61,7 @@ class ChunkedSpgram {
     void set_alpha(float val);
     void clear();
     void reset();
+    bool ready();
     void execute_block(cfloat *block, size_t n_samples);
     void get_psd_mag(float *psd);
     void get_psd(float *psd, bool linear=false);

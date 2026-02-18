@@ -128,7 +128,7 @@ static void apps_disable() {
     dialog_destruct();
 
     rtty_set_state(RTTY_OFF);
-    panel_visible();
+    panel_update_visibility(false);
 }
 
 void main_screen_start_app(press_action_t app_action) {
@@ -138,7 +138,7 @@ void main_screen_start_app(press_action_t app_action) {
         case ACTION_APP_RTTY:
             buttons_load_page(&buttons_page_rtty);
             rtty_set_state(RTTY_RX);
-            panel_visible();
+            panel_update_visibility(true);
             voice_say_text_fmt("Teletype window");
             break;
 

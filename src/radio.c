@@ -118,7 +118,7 @@ bool radio_tick() {
         prev_time = now_time;
 
         static uint8_t delay;
-        static bool vary_freq;
+        bool vary_freq = false;
 
         if (delay++ > 10) {
             delay = 0;
@@ -156,12 +156,10 @@ bool radio_tick() {
                 }
                 samples = samples_buf;
             }
+            vary_freq = flow_info->vary_freq;
         } else {
             samples = flow_samples;
             n_samples = RADIO_SAMPLES;
-        }
-        if (flow_info->flow_seq_n == 0) {
-            vary_freq = flow_info->vary_freq;
         }
         // printf("%d from %d, freq: %d, vary_freq: %d\n", flow_info->flow_seq_n, seq_total, base_freq, vary_freq);
         // union {

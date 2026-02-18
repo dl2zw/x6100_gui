@@ -319,6 +319,12 @@ void static waterfall_process(float complex *frame, const size_t size) {
     }
 }
 
+static void scroll_table_down_cb(lv_timer_t *t) {
+    static int32_t c = LV_KEY_DOWN;
+    lv_event_send(table, LV_EVENT_KEY, &c);
+    lv_timer_del(t);
+}
+
 static void truncate_table() {
     lv_coord_t     removed_rows_height = 0;
     uint16_t       table_rows = lv_table_get_row_cnt(table);
@@ -372,9 +378,11 @@ static void add_msg_cb(void *data) {
     lv_table_set_cell_user_data(table, table_rows, 0, cell_data_copy);
 
     if (scroll) {
-        static int32_t c = LV_KEY_DOWN;
-
-        lv_event_send(table, LV_EVENT_KEY, &c);
+        uint32_t delay = 0;
+        if (cell_data->cell_type == CELL_RX_INFO) {
+            delay = 2000;
+        }
+        lv_timer_create(scroll_table_down_cb, delay, NULL);
     }
 }
 
