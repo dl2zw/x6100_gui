@@ -61,6 +61,18 @@ typedef enum {
     THEME_LEGACY,
 } themes_t;
 
+/* Spectrum Color */
+typedef enum {
+    SPECTRUM_GRAY,
+    SPECTRUM_GREEN,
+    SPECTRUM_YELLOW,
+} spectrum_color_t;
+
+/* Meter Color */
+typedef enum {
+    METER_GRAY,
+    METER_COLORED,
+} meter_color_t;
 
 /* Params */
 
@@ -172,6 +184,14 @@ typedef struct {
     /* Theme */
 
     params_uint8_t       theme;
+
+    /* Spectrum Color */
+
+    params_uint8_t       spectrum_color;
+
+    /* Meter Color */
+
+    params_uint8_t       meter_color;
 
     /* durty flags */
 

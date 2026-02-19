@@ -107,6 +107,8 @@ params_t params = {
     .wifi_enabled           = { .x = false, .name="wifi_enabled" },
 
     .theme                  = { .x = THEME_SIMPLE, .name="theme"},
+    .spectrum_color         = { .x = SPECTRUM_GRAY, .name="spectrum_color"},
+    .meter_color            = { .x = METER_GRAY, .name="meter_color"},
 };
 
 static sqlite3_stmt     *write_mode_stmt;
@@ -273,6 +275,8 @@ static bool params_load() {
         if (params_load_str(&params.callsign, name, t)) continue;
         if (params_load_bool(&params.wifi_enabled, name, i)) continue;
         if (params_load_uint8(&params.theme, name, i)) continue;
+        if (params_load_uint8(&params.spectrum_color, name, i)) continue;
+        if (params_load_uint8(&params.meter_color, name, i)) continue;
     }
 
     sqlite3_finalize(stmt);
@@ -385,6 +389,8 @@ static void params_save() {
     params_save_str(&params.callsign);
     params_save_bool(&params.wifi_enabled);
     params_save_uint8(&params.theme);
+    params_save_uint8(&params.spectrum_color);
+    params_save_uint8(&params.meter_color);
 
     sql_query_exec("COMMIT");
 }
