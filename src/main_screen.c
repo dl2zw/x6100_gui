@@ -863,22 +863,22 @@ static void spectrum_key_cb(lv_event_t * e) {
 
         case KEY_VOL_LEFT_EDIT:
         case '[':
-            vol_update(-1, false);
+            vol_update(-1);
             break;
 
         case KEY_VOL_RIGHT_EDIT:
         case ']':
-            vol_update(+1, false);
+            vol_update(+1);
             break;
 
         case KEY_VOL_LEFT_SELECT:
         case '{':
-            vol_change_mode(-1);
+            vol_change_ctrl(-1);
             break;
 
         case KEY_VOL_RIGHT_SELECT:
         case '}':
-            vol_change_mode(+1);
+            vol_change_ctrl(+1);
             break;
 
         case KEYBOARD_F9:
@@ -888,11 +888,11 @@ static void spectrum_key_cb(lv_event_t * e) {
         case LV_KEY_LEFT:
             switch (mfk_state) {
                 case MFK_STATE_EDIT:
-                    mfk_update(-1, false);
+                    mfk_update(-1);
                     break;
 
                 case MFK_STATE_SELECT:
-                    mfk_change_mode(-1);
+                    mfk_change_ctrl(-1);
                     break;
             }
             break;
@@ -900,31 +900,32 @@ static void spectrum_key_cb(lv_event_t * e) {
         case LV_KEY_RIGHT:
             switch (mfk_state) {
                 case MFK_STATE_EDIT:
-                    mfk_update(+1, false);
+                    mfk_update(+1);
                     break;
 
                 case MFK_STATE_SELECT:
-                    mfk_change_mode(+1);
+                    mfk_change_ctrl(+1);
                     break;
             }
             break;
 
         case LV_KEY_ESC:
+            // VOL press also
             if (!dialog_is_run()) {
-                switch (vol->mode) {
-                    case VOL_EDIT:
-                        vol->mode = VOL_SELECT;
-                        knobs_set_vol_mode(false);
+                switch (vol->state) {
+                    case VOL_STATE_EDIT:
+                        vol->state = VOL_STATE_SELECT;
+                        knobs_set_vol_state(false);
                         voice_say_text_fmt("Selection mode");
                         break;
 
-                    case VOL_SELECT:
-                        vol->mode = VOL_EDIT;
-                        knobs_set_vol_mode(true);
+                    case VOL_STATE_SELECT:
+                        vol->state = VOL_STATE_EDIT;
+                        knobs_set_vol_state(true);
                         voice_say_text_fmt("Edit mode");
                         break;
                 }
-                vol_update(0, false);
+                vol_update(0);
             }
             break;
 
@@ -969,16 +970,16 @@ static void spectrum_pressed_cb(lv_event_t * e) {
         case MFK_STATE_EDIT:
             mfk_state = MFK_STATE_SELECT;
             voice_say_text_fmt("Selection mode");
-            knobs_set_mfk_mode(false);
+            knobs_set_mfk_state(false);
             break;
 
         case MFK_STATE_SELECT:
             mfk_state = MFK_STATE_EDIT;
             voice_say_text_fmt("Edit mode");
-            knobs_set_mfk_mode(true);
+            knobs_set_mfk_state(true);
             break;
     }
-    mfk_update(0, false);
+    mfk_update(0);
 }
 
 static void keys_enable_cb(lv_timer_t *t) {

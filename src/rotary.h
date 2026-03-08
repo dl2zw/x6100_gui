@@ -16,8 +16,8 @@ typedef struct {
     int             fd;
     uint16_t        left[3];
     uint16_t        right[3];
-    uint8_t         mode;
-    
+    uint8_t         state;
+
     lv_indev_drv_t  indev_drv;
     lv_indev_t      *indev;
 } rotary_t;

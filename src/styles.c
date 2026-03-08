@@ -87,9 +87,13 @@ lv_style_t  spectrum_style;
 lv_style_t  freq_style;
 lv_style_t  freq_main_style;
 lv_style_t  waterfall_style;
+
 lv_style_t  btn_style;
 lv_style_t  btn_active_style;
 lv_style_t  btn_disabled_style;
+lv_style_t  btn_mark_style;
+lv_style_t  btn_mark_assigned_style;
+
 lv_style_t  msg_style;
 lv_style_t  msg_tiny_style;
 lv_style_t  clock_style;
@@ -121,6 +125,7 @@ static void setup_theme_flat();
 
 void styles_init(themes_t theme) {
     /* * */
+    lv_style_t *style;
 
     lv_style_init(&background_style);
 
@@ -176,6 +181,22 @@ void styles_init(themes_t theme) {
     lv_style_set_bg_img_recolor(&btn_disabled_style, lv_color_hex(0x000000));
     lv_style_set_bg_img_recolor_opa(&btn_disabled_style, LV_OPA_20);
     lv_style_set_text_color(&btn_disabled_style, lv_color_hex(0x101010));
+
+    style = &btn_mark_style;
+    lv_style_set_width(style, 24),
+    lv_style_set_height(style, 24),
+    lv_style_set_radius(style, 12);
+    lv_style_set_bg_color(style, lv_color_hex(0x808080));
+    lv_style_set_blend_mode(style, LV_BLEND_MODE_ADDITIVE);
+    lv_style_set_outline_width(style, 0);
+    lv_style_set_border_width(style, 2);
+    lv_style_set_border_color(style, lv_color_hex(0x909090));
+    lv_style_set_opa(style, LV_OPA_30);
+
+    style = &btn_mark_assigned_style;
+    lv_style_init(style);
+    lv_style_set_opa(style, LV_OPA_40);
+    lv_style_set_bg_color(style, lv_color_hex(0x80ff80));
 
     /* Message style */
     lv_style_init(&msg_style);
@@ -334,7 +355,9 @@ static void setup_theme_legacy() {
     bg_color = lv_color_hex(0x0040A0);
     lv_style_set_bg_color(&background_style, bg_color);
 
+    /* Buttons */
     lv_style_set_bg_img_src(&btn_style, PATH "images/btn.bin");
+
     lv_style_set_bg_img_src(&msg_style, PATH "images/msg.bin");
     /* Clock */
     lv_style_set_bg_img_src(&clock_style, PATH "images/top_short.bin");
@@ -400,7 +423,9 @@ static void setup_theme_simple() {
     bg_color = lv_color_hex(0x27313a);
     lv_style_set_bg_color(&background_style, bg_color);
 
+    /* Buttons */
     lv_style_set_bg_img_src(&btn_style, PATH "images/btn_dark.bin");
+
     lv_style_set_bg_img_src(&msg_style, PATH "images/msg_dark.bin");
     /* Clock */
     lv_style_set_bg_img_src(&clock_style, PATH "images/top_short_dark.bin");

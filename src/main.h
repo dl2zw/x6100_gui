@@ -11,12 +11,8 @@
 #include "rotary.h"
 #include "encoder.h"
 
-#define VERSION "v0.32.2"
+#define VERSION "v0.33.0"
 
-typedef enum {
-    VOL_EDIT = 0,
-    VOL_SELECT,
-} vol_rotary_t;
 
 extern rotary_t     *vol;
 extern encoder_t    *mfk;

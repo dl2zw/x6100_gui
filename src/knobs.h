@@ -22,8 +22,8 @@ extern "C" {
 
 
 void knobs_init(lv_obj_t * parent);
-void knobs_set_vol_mode(bool edit);
-void knobs_set_mfk_mode(bool edit);
+void knobs_set_vol_state(bool edit);
+void knobs_set_mfk_state(bool edit);
 void knobs_display(bool on);
 bool knobs_visible();
 
@@ -31,7 +31,7 @@ bool knobs_visible();
 }
 
 /* C++ only part */
-void knobs_set_vol_param(cfg_vol_mode_t control);
+void knobs_set_vol_param(cfg_ctrl_t control);
 
-void knobs_set_mfk_param(cfg_mfk_mode_t control);
+void knobs_set_mfk_param(cfg_ctrl_t control);
 #endif

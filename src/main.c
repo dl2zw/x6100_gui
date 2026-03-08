@@ -87,17 +87,18 @@ int main(void) {
     vol = rotary_init("/dev/input/event2");
     mfk = encoder_init("/dev/input/event3");
 
-    vol->left[VOL_EDIT] = KEY_VOL_LEFT_EDIT;
-    vol->right[VOL_EDIT] = KEY_VOL_RIGHT_EDIT;
+    vol->left[VOL_STATE_EDIT] = KEY_VOL_LEFT_EDIT;
+    vol->right[VOL_STATE_EDIT] = KEY_VOL_RIGHT_EDIT;
 
-    vol->left[VOL_SELECT] = KEY_VOL_LEFT_SELECT;
-    vol->right[VOL_SELECT] = KEY_VOL_RIGHT_SELECT;
+    vol->left[VOL_STATE_SELECT] = KEY_VOL_LEFT_SELECT;
+    vol->right[VOL_STATE_SELECT] = KEY_VOL_RIGHT_SELECT;
+    vol->state = VOL_STATE_EDIT;
 
     params_init();
     audio_set_play_vol(params.play_gain_db_f.x);
     audio_set_rec_vol(params.rec_gain_db_f.x);
-    mfk_change_mode(0);
-    vol_change_mode(0);
+    mfk_init();
+    vol_init();
     styles_init(params.theme.x);
 
     radio_init();
@@ -128,17 +129,12 @@ int main(void) {
     lv_scr_load(main_obj);
 #endif
 
-    int64_t next_loop_time, sleep_time, loop_start_time;
     while (1) {
-        loop_start_time = get_time();
         observer_delayed_notify_all();
         event_obj_check();
         scheduler_work();
-        next_loop_time = lv_timer_handler() + loop_start_time;
-        sleep_time = next_loop_time - get_time();
-        if (sleep_time > 0) {
-            usleep(sleep_time * 1000);
-        }
+        lv_timer_handler_run_in_period(5);
+        usleep(1000);
     }
     return 0;
 }
@@ -146,7 +142,7 @@ int main(void) {
 void * tick_thread (void *args)
 {
       while(1) {
-        usleep(5 * 1000);    /*Sleep for 5 millisecond*/
-        lv_tick_inc(5);      /*Tell LVGL that 5 milliseconds were elapsed*/
+        usleep(1 * 1000);
+        lv_tick_inc(1);
     }
 }

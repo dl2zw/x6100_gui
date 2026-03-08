@@ -31,6 +31,10 @@
 #define FLOW_RESTART_TIMEOUT 300
 #define IDLE_TIMEOUT        (3 * 1000)
 
+#define FILTER_2_OFFSET 60
+#define FILTER_2_OFFSET_IN 20
+#define FILTER_2_OFFSET_OUT (FILTER_2_OFFSET - FILTER_2_OFFSET_IN)
+
 static radio_rx_tx_change_t notify_rx_tx;
 static void(*low_power_cb)(bool) = NULL;
 
@@ -68,7 +72,6 @@ typedef struct __attribute__((__packed__)) {
         radio_lock(); \
         radio_fn(val); \
         radio_unlock(); \
-        lv_msg_send(MSG_PARAM_CHANGED, NULL); \
     }
 
 
@@ -404,6 +407,8 @@ static void on_atu_network_change(Subject *subj, void *user_data) {
 
 static void on_low_filter_change(Subject *subj, void *user_data) {
     int32_t low = subject_get_int(subj);
+    int32_t low2 = LV_MAX(0, low - FILTER_2_OFFSET_OUT);
+    low += FILTER_2_OFFSET_IN;
     switch (subject_get_int(cfg_cur.mode)) {
         case x6100_mode_am:
         case x6100_mode_nfm:
@@ -411,9 +416,9 @@ static void on_low_filter_change(Subject *subj, void *user_data) {
 
         default:
             radio_lock();
-            LV_LOG_USER("Radio set filter_low=%i", low);
+            LV_LOG_USER("Radio set filter_low=%i, low2=%i", low, low2);
             x6100_control_cmd(x6100_filter1_low, low);
-            x6100_control_cmd(x6100_filter2_low, low);
+            x6100_control_cmd(x6100_filter2_low, low2);
             radio_unlock();
             break;
     }
@@ -421,22 +426,24 @@ static void on_low_filter_change(Subject *subj, void *user_data) {
 
 static void on_high_filter_change(Subject *subj, void *user_data) {
     int32_t high = subject_get_int(subj);
+    int32_t high2 = high + FILTER_2_OFFSET_OUT;
+    high -= FILTER_2_OFFSET_IN;
     radio_lock();
     switch (subject_get_int(cfg_cur.mode)) {
         case x6100_mode_am:
         case x6100_mode_nfm:
-            LV_LOG_USER("Radio set filter_low=%i", -high);
-            LV_LOG_USER("Radio set filter_high=%i", high);
+            LV_LOG_USER("Radio set filter_low=%i, low2=%i", -high, -high2);
+            LV_LOG_USER("Radio set filter_high=%i, high2=%i", high, high2);
             x6100_control_cmd(x6100_filter1_low, -high);
-            x6100_control_cmd(x6100_filter2_low, -high);
+            x6100_control_cmd(x6100_filter2_low, -high2);
             x6100_control_cmd(x6100_filter1_high, high);
-            x6100_control_cmd(x6100_filter2_high, high);
+            x6100_control_cmd(x6100_filter2_high, high2);
             break;
 
         default:
-            LV_LOG_USER("Radio set filter_high=%i", high);
+            LV_LOG_USER("Radio set filter_high=%i, high2=%i", high, high2);
             x6100_control_cmd(x6100_filter1_high, high);
-            x6100_control_cmd(x6100_filter2_high, high);
+            x6100_control_cmd(x6100_filter2_high, high2);
             break;
     }
     radio_unlock();
@@ -580,9 +587,17 @@ void radio_init() {
     subject_add_observer_and_call(cfg.comp_threshold_offset.val, on_change_float, x6100_control_comp_threshold_set);
     subject_add_observer_and_call(cfg.comp_makeup_offset.val, on_change_float, x6100_control_comp_makeup_set);
 
+    subject_add_observer_and_call(cfg.mic.val, on_change_uint8, x6100_control_mic_set);
+    subject_add_observer_and_call(cfg.hmic.val, on_change_uint8, x6100_control_hmic_set);
+    subject_add_observer_and_call(cfg.imic.val, on_change_uint8, x6100_control_imic_set);
+    subject_add_observer_and_call(cfg.moni.val, on_change_uint8, x6100_control_moni_set);
+
     subject_add_observer_and_call(cfg.rit.val, base_control_command, (void*)x6100_rit);
     subject_add_observer_and_call(cfg.xit.val, base_control_command, (void*)x6100_xit);
     subject_add_observer_and_call(cfg.fm_emphasis.val, on_change_bool, x6100_control_fm_emp);
+
+    subject_add_observer_and_call(cfg.tx_filter_low.val, on_change_uint16, x6100_control_tx_filter_low_set);
+    subject_add_observer_and_call(cfg.tx_filter_high.val, on_change_uint16, x6100_control_tx_filter_high_set);
 
     subject_add_observer_and_call(cfg.key_tone.val, on_change_uint16, x6100_control_key_tone_set);
     subject_add_observer_and_call(cfg.key_speed.val, on_change_uint8, x6100_control_key_speed_set);
@@ -615,9 +630,6 @@ void radio_init() {
     x6100_control_bias_drive_set(params.bias_drive);
     x6100_control_bias_final_set(params.bias_final);
 
-    x6100_control_mic_set(params.mic);
-    x6100_control_hmic_set(params.hmic);
-    x6100_control_imic_set(params.imic);
     x6100_control_spmode_set(params.spmode.x);
 
     x6100_control_vox_set(params.vox);
@@ -627,7 +639,6 @@ void radio_init() {
 
     x6100_control_linein_set(params.line_in);
     x6100_control_lineout_set(params.line_out);
-    x6100_control_cmd(x6100_monilevel, params.moni);
 
     if (base_ver.rev >= 8) {
         x6100_control_bf16_flow_set(true);
@@ -695,30 +706,12 @@ void radio_change_mute() {
     x6100_control_rxvol_set(mute ? 0 : subject_get_int(cfg.vol.val));
 }
 
-uint16_t radio_change_moni(int16_t df) {
-    if (df == 0) {
-        return params.moni;
-    }
-
-    int16_t new_val = limit(params.moni + df, 0, 100);
-    if (new_val != params.moni) {
-        params_lock();
-        params.moni = new_val;
-        params_unlock(&params.dirty.moni);
-        WITH_RADIO_LOCK(x6100_control_cmd(x6100_monilevel, params.moni));
-        lv_msg_send(MSG_PARAM_CHANGED, NULL);
-    }
-
-    return params.moni;
-}
-
 bool radio_change_spmode(int16_t df) {
     if (df == 0) {
         return params.spmode.x;
     }
 
     params_bool_set(&params.spmode, df > 0);
-    lv_msg_send(MSG_PARAM_CHANGED, NULL);
 
     WITH_RADIO_LOCK(x6100_control_spmode_set(params.spmode.x));
 
@@ -758,56 +751,6 @@ void radio_stop_swrscan() {
 
 void radio_set_pwr(float d) {
     WITH_RADIO_LOCK(x6100_control_txpwr_set(d));
-}
-
-x6100_mic_sel_t radio_change_mic(int16_t d) {
-    if (d == 0) {
-        return params.mic;
-    }
-
-    params_lock();
-
-    switch (params.mic) {
-        case x6100_mic_builtin:
-            params.mic = d > 0 ? x6100_mic_handle : x6100_mic_auto;
-            break;
-
-        case x6100_mic_handle:
-            params.mic = d > 0 ? x6100_mic_auto : x6100_mic_builtin;
-            break;
-
-        case x6100_mic_auto:
-            params.mic = d > 0 ? x6100_mic_builtin : x6100_mic_handle;
-            break;
-    }
-
-    params_unlock(&params.dirty.mic);
-    lv_msg_send(MSG_PARAM_CHANGED, NULL);
-
-    WITH_RADIO_LOCK(x6100_control_mic_set(params.mic));
-
-    return params.mic;
-}
-
-uint8_t radio_change_hmic(int16_t d) {
-    if (d == 0) {
-        return params.hmic;
-    }
-    int32_t new_val = limit(params.hmic + d, 0, 50);
-    CHANGE_PARAM(new_val, params.hmic, params.dirty.hmic, x6100_control_hmic_set);
-
-    return params.hmic;
-}
-
-uint8_t radio_change_imic(int16_t d) {
-    if (d == 0) {
-        return params.imic;
-    }
-
-    int32_t new_val = limit(params.imic + d, 0, 35);
-    CHANGE_PARAM(new_val, params.imic, params.dirty.imic, x6100_control_imic_set);
-
-    return params.imic;
 }
 
 x6100_vfo_t radio_toggle_vfo() {
