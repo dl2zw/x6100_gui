@@ -454,8 +454,9 @@ int cfg_band_params_load_item(cfg_item_t *item) {
         }
     } else {
         if (strcmp(item->db_name, "vfob_freq") == 0) {
-            LV_LOG_USER("Copy vfoa freq to vfob");
             int_val = subject_get_int(cfg_band.vfo_a.freq.val);
+            LV_LOG_USER("Copy vfoa freq (%d) to vfob", int_val);
+            subject_set_int(item->val, int_val);
             rc = 0;
         } else {
             LV_LOG_WARN("No results for load from band_params with name: %s and bands_id: %i", item->db_name, item->pk);
