@@ -1059,15 +1059,24 @@ static bool get_time_slot(struct timespec now, float *sec_since_start) {
  */
 static void make_cq_msg(const char *callsign, const char *qth, const char *cq_mod, char *text) {
     size_t text_len;
+    char buf[128];
     if (strlen(cq_mod)) {
-        snprintf(text, FTX_MAX_MESSAGE_LENGTH, "CQ_%s %s", cq_mod, callsign);
+        snprintf(buf, FTX_MAX_MESSAGE_LENGTH, "CQ_%s %s %.4s", cq_mod, callsign, qth);
     } else {
-        snprintf(text, FTX_MAX_MESSAGE_LENGTH, "CQ %s", callsign);
+        snprintf(buf, FTX_MAX_MESSAGE_LENGTH, "CQ %s %.4s", callsign, qth);
     }
-    if (!subject_get_int(cfg.ft8_omit_cq_qth.val)){
-        text_len = strlen(text);
-        snprintf(text + text_len, FTX_MAX_MESSAGE_LENGTH - text_len, " %.4s", qth);
+
+    ftx_message_rc_t rc;
+    ftx_message_t msg;
+    rc = ftx_message_encode(&msg, NULL, buf);
+    if (rc != FTX_MESSAGE_RC_OK) {
+        LV_LOG_USER("Error: %d while encoding message: '%s'", rc, buf);
     }
+    rc = ftx_message_decode(&msg, NULL, buf);
+    if (rc != FTX_MESSAGE_RC_OK) {
+        LV_LOG_USER("Error: %d while decoding message: '%s'", rc, buf);
+    }
+    strcpy(text, buf);
 }
 
 /**
