@@ -32,13 +32,15 @@ extern "C" {
     #include <stdlib.h>
 }
 
-#define DB_OFFSET -30.0f
+#define DB_OFFSET -34.0f
 #define OEM_PSD_DELAY 4
 #define R8_PSD_DELAY 0
 
 #define SG_ALPHA_WF 0.8f
 #define SG_ALPHA_SP 0.4f
 #define SG_ALPHA_FACTOR 0.1f
+
+#define FULL_BW_HZ 100000
 
 static iirfilt_cccf dc_block;
 
@@ -320,7 +322,7 @@ void dsp_reset() {
 
 static void process_samples(cfloat *buf_samples, uint16_t size, firdecim_crcf sp_decim, ChunkedSpgram *sp_sg,
                             ChunkedSpgram *wf_sg, bool tx) {
-    // Swap I and Q
+    // Swap I and Q, add offset
     for (size_t i = 0; i < size; i++) {
         buf_filtered[i] = {buf_samples[i].imag(), buf_samples[i].real()};
     }
@@ -355,7 +357,7 @@ static bool update_spectrum(ChunkedSpgram *sp_sg, uint64_t now, bool tx, uint32_
         liquid_vectorf_addscalar(spectrum_psd, SPECTRUM_NFFT, DB_OFFSET + zoom_level_offset, spectrum_psd);
         // Shift filtered
         if (base_freq != spectrum_prev_freq) {
-            int32_t shift = ((int64_t)base_freq - spectrum_prev_freq) * (spectrum_factor * SPECTRUM_NFFT) / 100000;
+            int32_t shift = ((int64_t)base_freq - spectrum_prev_freq) * (spectrum_factor * SPECTRUM_NFFT) / FULL_BW_HZ;
             float *src = spectrum_psd_filtered;
             float *dst = spectrum_psd_filtered;
             float *to_clear_p;
@@ -395,7 +397,7 @@ static bool update_waterfall(ChunkedSpgram *wf_sg, uint64_t now, bool tx, uint32
             waterfall_psd[i] = 10.0f * log10f(waterfall_psd_lin[i]);
         }
         liquid_vectorf_addscalar(waterfall_psd, WATERFALL_NFFT, DB_OFFSET + zoom_level_offset, waterfall_psd);
-        uint32_t width_hz = 100000;
+        uint32_t width_hz = FULL_BW_HZ;
         if (waterfall_fft_decim) {
             width_hz /= spectrum_factor;
         }
@@ -409,7 +411,7 @@ static bool update_waterfall(ChunkedSpgram *wf_sg, uint64_t now, bool tx, uint32
 static void update_s_meter() {
     if (dialog_msg_voice_get_state() != MSG_VOICE_RECORD) {
         int32_t from, to, center;
-        int32_t bw = 100000;
+        int32_t bw = FULL_BW_HZ;
         if (fw_decim) {
             bw /= spectrum_factor;
         }
@@ -590,10 +592,15 @@ static void dsp_update_min_max(float *data_buf, uint16_t size) {
         min_max_delay--;
         return;
     }
-    int window_size = (WATERFALL_NFFT * 2500) / 100000;
+    int32_t bw_hz = FULL_BW_HZ;
     if (fw_decim) {
-        window_size *= spectrum_factor;
+        bw_hz /= spectrum_factor;
     }
+
+    // 2.5 kHz
+    uint32_t win_size_hz = 2500;
+
+    int window_size = (size * win_size_hz) / bw_hz;
     float power_sum[size - window_size];
 
     // Sum with window
@@ -611,9 +618,29 @@ static void dsp_update_min_max(float *data_buf, uint16_t size) {
             min = power_sum[i];
         }
     }
+    // Scale noise for 1 Hz
+    min /= win_size_hz;
+
+    // Get Minimum Statistics offset for the noise level
+    float offset;
+    switch (bw_hz)
+    {
+    case FULL_BW_HZ:
+        offset = 3.98f;
+        break;
+    case FULL_BW_HZ / 2:
+        offset = 2.45f;
+        break;
+    case FULL_BW_HZ / 4:
+        offset = 1.46f;
+        break;
+    default:
+        offset = 0.82f;
+        break;
+    }
 
     // Convert to db
-    min = 10.0f * log10f(min) + DB_OFFSET;
+    min = 10.0f * log10f(min * (filter_to - filter_from)) + DB_OFFSET + offset;
 
     lpf(&noise_level, min, 0.8f, S_MIN);
 
