@@ -2098,7 +2098,7 @@ static uint8_t make_delimiter(uint8_t row) {
 }
 
 static void grid_create() {
-    std::fill_n(row_dsc, 64, 54);
+    std::fill_n(row_dsc, 64, 55);
     grid = lv_obj_create(dialog.obj);
     lv_obj_set_layout(grid, LV_LAYOUT_GRID);
     lv_obj_set_size(grid, 780, 330);
@@ -2114,6 +2114,7 @@ static void grid_create() {
 static void grid_delete() {
     if (grid) {
         lv_group_set_editing(keyboard_group, false);
+        // lv_group_remove_all_objs(keyboard_group);
         lv_obj_del(grid);
     }
 }

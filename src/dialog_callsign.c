@@ -53,7 +53,7 @@ static bool edit_ok() {
 
     const char *callsign = textarea_window_get();
     // Try encode
-    snprintf(buf, sizeof(buf), "CQ %s %.4s", callsign, params.qth.x);
+    snprintf(buf, sizeof(buf), "CQ %s AA00", callsign);
     if (!check_ftx_msg_encoding(buf)) {
         // Try without locator
         snprintf(buf, sizeof(buf), "CQ %s", callsign);
@@ -62,10 +62,7 @@ static bool edit_ok() {
             return false;
         } else {
             msg_schedule_text_fmt("Callsign is long, QTH will be omitted");
-            subject_set_int(cfg.ft8_omit_cq_qth.val, true);
         }
-    } else {
-        subject_set_int(cfg.ft8_omit_cq_qth.val, false);
     }
     params_str_set(&params.callsign, callsign);
     dialog_destruct(&dialog);
