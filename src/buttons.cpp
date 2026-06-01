@@ -8,6 +8,7 @@
 #include "buttons.h"
 
 #include "controls.h"
+#include "util.h"
 
 #include <stdio.h>
 #include <string>
@@ -26,7 +27,6 @@ extern "C" {
     #include "pubsub_ids.h"
 }
 
-#define ARRAY_SIZE(arr) (sizeof(arr) / sizeof(*arr))
 #define STATE_ASSIGNED LV_STATE_USER_1
 
 struct _disp_button_t {
@@ -80,6 +80,11 @@ static const char * agc_slope_label_getter();
 static const char * comp_label_getter();
 static const char * if_shift_label_getter();
 
+static const char * vox_on_label_getter();
+static const char * vox_gain_label_getter();
+static const char * vox_ag_label_getter();
+static const char * vox_delay_label_getter();
+
 static const char * key_speed_label_getter();
 static const char * key_volume_label_getter();
 static const char * key_train_label_getter();
@@ -96,6 +101,8 @@ static const char * cw_snr_label_getter();
 
 static const char * cw_peak_beta_label_getter();
 static const char * cw_noise_beta_label_getter();
+static const char * cw_peak_on_label_getter();
+static const char * cw_peak_q_label_getter();
 
 static const char * dnf_label_getter();
 static const char * dnf_center_label_getter();
@@ -189,6 +196,18 @@ static button_item_t btn_agc_slope = make_encoder_btn(agc_slope_label_getter, CT
 static button_item_t btn_comp      = make_encoder_btn(comp_label_getter, CTRL_COMP, &cfg.comp.val);
 static button_item_t btn_if_shift  = make_encoder_btn(if_shift_label_getter, CTRL_IF_SHIFT, &cfg_cur.band->if_shift.val);
 
+/* VOX */
+static button_item_t btn_vox_on    = {.type            = BTN_TEXT_FN,
+                                      .label_fn        = vox_on_label_getter,
+                                      .press           = controls_toggle_vox,
+                                      .hold            = button_encoder_hold_update_cb,
+                                      .data            = CTRL_VOX_ON,
+                                      .encoder_allowed = true,
+                                      .subj            = &cfg.vox.on.val};
+static button_item_t btn_vox_gain  = make_encoder_btn(vox_gain_label_getter, CTRL_VOX_GAIN, &cfg.vox.gain.val);
+static button_item_t btn_vox_ag    = make_encoder_btn(vox_ag_label_getter, CTRL_VOX_AG, &cfg.vox.ag.val);
+static button_item_t btn_vox_delay = make_encoder_btn(vox_delay_label_getter, CTRL_VOX_DELAY, &cfg.vox.delay.val);
+
 /* MEM */
 
 static button_item_t btn_mem_1 = make_mem_btn("Set 1", 1);
@@ -243,6 +262,15 @@ static button_item_t btn_cw_peak_beta =
     make_encoder_btn(cw_peak_beta_label_getter, CTRL_CW_DECODER_PEAK_BETA, &cfg.cw_decoder_peak_beta.val);
 static button_item_t btn_cw_noise_beta =
     make_encoder_btn(cw_noise_beta_label_getter, CTRL_CW_DECODER_NOISE_BETA, &cfg.cw_decoder_noise_beta.val);
+
+static button_item_t btn_cw_peak_on = {.type            = BTN_TEXT_FN,
+                                       .label_fn        = cw_peak_on_label_getter,
+                                       .press           = controls_toggle_cw_peak,
+                                       .hold            = button_encoder_hold_update_cb,
+                                       .data            = CTRL_CW_PEAK_ON,
+                                       .encoder_allowed = true,
+                                       .subj            = &cfg.cw_peak_on.val};
+static button_item_t btn_cw_peak_q = make_encoder_btn(cw_peak_q_label_getter, CTRL_CW_PEAK_Q, &cfg.cw_peak_q.val);
 
 /* DSP */
 
@@ -344,9 +372,10 @@ static buttons_page_t page_vol_2 = {
 };
 
 /* MFK pages */
-static button_item_t btn_mfk_p1 = make_page_btn("(MFK 1:3)", "MFK|page 1");
-static button_item_t btn_mfk_p2 = make_page_btn("(MFK 2:3)", "MFK|page 2");
-static button_item_t btn_mfk_p3 = make_page_btn("(MFK 2:3)", "MFK|page 3");
+static button_item_t btn_mfk_p1 = make_page_btn("(MFK 1:4)", "MFK|page 1");
+static button_item_t btn_mfk_p2 = make_page_btn("(MFK 2:4)", "MFK|page 2");
+static button_item_t btn_mfk_p3 = make_page_btn("(MFK 3:4)", "MFK|page 3");
+static button_item_t btn_mfk_p4 = make_page_btn("(MFK 4:4)", "MFK|page 4");
 
 static buttons_page_t page_mfk_1 = {
     {&btn_mfk_p1, &btn_rit, &btn_xit, &btn_zoom, &btn_ant}
@@ -356,6 +385,9 @@ static buttons_page_t page_mfk_2 = {
 };
 static buttons_page_t page_mfk_3 = {
     {&btn_mfk_p3, &btn_if_shift}
+};
+static buttons_page_t page_mfk_4 = {
+    {&btn_mfk_p4, &btn_vox_on, &btn_vox_gain, &btn_vox_ag, &btn_vox_delay},
 };
 
 /* MEM pages */
@@ -383,10 +415,10 @@ static buttons_page_t page_key_2 = {
     {&btn_key_p2, &btn_key_mode, &btn_key_iambic_mode, &btn_key_qsk_time, &btn_key_ratio}
 };
 static buttons_page_t page_cw_decoder_1 = {
-    {&btn_cw_p1, &btn_cw_decoder, &btn_cw_tuner, &btn_cw_snr}
+    {&btn_cw_p1, &btn_cw_decoder, &btn_cw_tuner, &btn_cw_peak_on, &btn_cw_peak_q}
 };
 static buttons_page_t page_cw_decoder_2 = {
-    {&btn_cw_p2, &btn_cw_peak_beta, &btn_cw_noise_beta}
+    {&btn_cw_p2,&btn_cw_snr, &btn_cw_peak_beta, &btn_cw_noise_beta}
 };
 
 /* DFN pages */
@@ -436,6 +468,7 @@ buttons_group_t buttons_group_gen = {
     &page_mfk_1,
     &page_mfk_2,
     &page_mfk_3,
+    &page_mfk_4,
 };
 
 buttons_group_t buttons_group_app = {
@@ -506,7 +539,8 @@ void buttons_init(lv_obj_t *parent) {
 
     /* Update default binds */
     binds.fill(ENCODER_BIND_MFK);
-    for (auto it = std::begin(cfg_encoder_vol_modes_default); it != std::end(cfg_encoder_vol_modes_default); it++) {
+    auto end = cfg_encoder_vol_modes_default + cfg_encoder_vol_modes_default_size;
+    for (auto it = cfg_encoder_vol_modes_default; it != end ; it++) {
         binds[*it] = ENCODER_BIND_VOL;
     }
 
@@ -661,12 +695,14 @@ static void button_encoder_update_cb(button_item_t *item) {
                 set_fn = mfk_set_ctrl;
                 break;
             default: ;
-                auto it = std::find(std::begin(cfg_encoder_vol_modes_default), std::end(cfg_encoder_vol_modes_default), ctrl);
-                if (it != std::end(cfg_encoder_vol_modes_default)) {
+                auto end = cfg_encoder_vol_modes_default + cfg_encoder_vol_modes_default_size;
+                auto it = std::find(cfg_encoder_vol_modes_default, end, ctrl);
+                if (it != end) {
                     set_fn = vol_set_ctrl;
                 } else {
-                    it = std::find(std::begin(cfg_encoder_mfk_modes_default), std::end(cfg_encoder_mfk_modes_default), ctrl);
-                    if (it != std::end(cfg_encoder_mfk_modes_default)) {
+                    end = cfg_encoder_mfk_modes_default + cfg_encoder_mfk_modes_default_size;
+                    it = std::find(cfg_encoder_mfk_modes_default, end, ctrl);
+                    if (it != end) {
                         set_fn = mfk_set_ctrl;
                     }
                 }
@@ -886,6 +922,30 @@ static const char * if_shift_label_getter() {
     return buf;
 }
 
+const char *vox_on_label_getter() {
+    static char buf[22];
+    sprintf(buf, "VOX:\n%s", subject_get_int(cfg.vox.on.val) ? "On": "Off");
+    return buf;
+}
+
+const char *vox_gain_label_getter() {
+    static char buf[22];
+    sprintf(buf, "VOX gain:\n%i", subject_get_int(cfg.vox.gain.val));
+    return buf;
+}
+
+const char *vox_ag_label_getter() {
+    static char buf[22];
+    sprintf(buf, "VOX a-gain:\n%i", subject_get_int(cfg.vox.ag.val));
+    return buf;
+}
+
+const char *vox_delay_label_getter() {
+    static char buf[22];
+    sprintf(buf, "VOX delay:\n%i ms", subject_get_int(cfg.vox.delay.val));
+    return buf;
+}
+
 static const char * key_speed_label_getter() {
     static char buf[22];
     sprintf(buf, "Speed:\n%zu wpm", subject_get_int(cfg.key_speed.val));
@@ -961,6 +1021,18 @@ static const char * cw_peak_beta_label_getter() {
 static const char * cw_noise_beta_label_getter() {
     static char buf[22];
     sprintf(buf, "Noise beta:\n%0.2f", subject_get_float(cfg.cw_decoder_noise_beta.val));
+    return buf;
+}
+
+static const char * cw_peak_on_label_getter() {
+    static char buf[22];
+    sprintf(buf, "CW peak:\n%s", subject_get_int(cfg.cw_peak_on.val) ? "On": "Off");
+    return buf;
+}
+
+static const char * cw_peak_q_label_getter() {
+    static char buf[22];
+    sprintf(buf, "CW peak Q:\n%i", subject_get_int(cfg.cw_peak_q.val));
     return buf;
 }
 

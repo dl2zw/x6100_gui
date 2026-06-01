@@ -38,6 +38,10 @@ static std::map<cfg_ctrl_t, std::string> control_name_voice{
 
     {CTRL_SPECTRUM_FACTOR, "Zoom level"},
     {CTRL_COMP, "Compressor ratio"},
+    {CTRL_VOX_ON, "VOX switcher"},
+    {CTRL_VOX_GAIN, "VOX gain"},
+    {CTRL_VOX_AG, "VOX anti gain"},
+    {CTRL_VOX_DELAY, "VOX delay"},
     {CTRL_KEY_SPEED, "CW key speed"},
     {CTRL_KEY_MODE, "CW key mode selector"},
     {CTRL_IAMBIC_MODE, "Iambic mode selector"},
@@ -109,6 +113,11 @@ void controls_toggle_cw_tuner(button_item_t *btn) {
     voice_say_bool("CW Decoder", new_val);
 }
 
+void controls_toggle_cw_peak(button_item_t *btn) {
+    bool new_val = toggle_subj(cfg.cw_peak_on.val);
+    voice_say_bool("CW Peak", new_val);
+}
+
 void controls_toggle_dnf(button_item_t *btn) {
     bool new_val = toggle_subj(cfg.dnf.val);
     voice_say_bool("DNF", new_val);
@@ -127,6 +136,11 @@ void controls_toggle_nb(button_item_t *btn) {
 void controls_toggle_nr(button_item_t *btn) {
     bool new_val = toggle_subj(cfg.nr.val);
     voice_say_bool("NR", new_val);
+}
+
+void controls_toggle_vox(button_item_t *btn) {
+    bool new_val = toggle_subj(cfg.vox.on.val);
+    voice_say_bool("VOX", new_val);
 }
 
 void controls_encoder_update(cfg_ctrl_t ctrl, int16_t diff, std::string &msg) {
@@ -207,8 +221,7 @@ void controls_encoder_update(cfg_ctrl_t ctrl, int16_t diff, std::string &msg) {
                 int32_t bw = subject_get_int(cfg_cur.filter.bw);
                 if (diff) {
                     bw = align_int(bw + diff * 20, 20);
-                    bw = clip(bw, 50, 7500);
-                    subject_set_int(cfg_cur.filter.bw, bw);
+                    bw = cfg_mode_set_bw_filter(bw);
                 }
                 snprintf(msg.data(), msg.capacity(), "Filter bw: %i Hz", bw);
 
@@ -299,6 +312,45 @@ void controls_encoder_update(cfg_ctrl_t ctrl, int16_t diff, std::string &msg) {
             }
             break;
 
+        case CTRL_VOX_ON:
+            b = subject_get_int(cfg.vox.on.val);
+            if (diff) {
+                b = !b;
+                subject_set_int(cfg.vox.on.val, b);
+            }
+            snprintf(msg.data(), msg.capacity(), "VOX: %s", (b ? "On" : "Off"));
+
+            if (diff) {
+                voice_say_bool("VOX", b);
+            }
+            break;
+
+        case CTRL_VOX_GAIN:
+            i = update_subject<int32_t>(cfg.vox.gain.val, diff, 0, 100);
+            snprintf(msg.data(), msg.capacity(), "VOX gain: %i", i);
+
+            if (diff) {
+                voice_say_int("VOX gain", i);
+            }
+            break;
+        case CTRL_VOX_AG:
+            i = update_subject<int32_t>(cfg.vox.ag.val, diff, 0, 100);
+            snprintf(msg.data(), msg.capacity(), "VOX anti-gain: %i", i);
+
+            if (diff) {
+                voice_say_int("VOX anti gain", i);
+            }
+            break;
+        case CTRL_VOX_DELAY:
+            i = update_subject<int32_t>(cfg.vox.delay.val, diff * 50, 100, 2000);
+            snprintf(msg.data(), msg.capacity(), "VOX delay: %i ms", i);
+
+            if (diff) {
+                voice_say_int("VOX delay", i);
+            }
+
+            break;
+
         case CTRL_KEY_SPEED:
             i = update_subject<int32_t>(cfg.key_speed.val, diff, 5, 50);
             snprintf(msg.data(), msg.capacity(), "Key speed: %i wpm", i);
@@ -382,6 +434,28 @@ void controls_encoder_update(cfg_ctrl_t ctrl, int16_t diff, std::string &msg) {
 
             if (diff) {
                 voice_say_float("CW key ratio", f);
+            }
+            break;
+
+        case CTRL_CW_PEAK_ON:
+            b = subject_get_int(cfg.cw_peak_on.val);
+            if (diff) {
+                b = !b;
+                subject_set_int(cfg.cw_peak_on.val, b);
+            }
+            snprintf(msg.data(), msg.capacity(), "CW peak: %s", (b ? "On" : "Off"));
+
+            if (diff) {
+                voice_say_bool("CW peak", b);
+            }
+            break;
+
+        case CTRL_CW_PEAK_Q:
+            i = update_subject<int32_t>(cfg.cw_peak_q.val, diff, 1, 64);
+            snprintf(msg.data(), msg.capacity(), "CW peak Q: %i", i);
+
+            if (diff) {
+                voice_say_int("CW peak Q", i);
             }
             break;
 

@@ -222,6 +222,12 @@ static std::map<int, Control*> controls = {
     {CTRL_MONI, new ControlSubjInt("Moni level", &cfg.moni.val)},
     {CTRL_SPECTRUM_FACTOR, new ControlSubjInt("Zoom", &cfg_cur.zoom)},
     {CTRL_COMP, new ControlComp("Compressor", &cfg.comp.val)},
+
+    {CTRL_VOX_ON, new ControlSubjOnOff("VOX", &cfg.vox.on.val)},
+    {CTRL_VOX_GAIN, new ControlSubjInt("VOX gain", &cfg.vox.gain.val)},
+    {CTRL_VOX_AG, new ControlSubjInt("VOX a-gain", &cfg.vox.ag.val)},
+    {CTRL_VOX_DELAY, new ControlSubjInt("VOX delay", &cfg.vox.delay.val)},
+
     {CTRL_ANT, new ControlSubjInt("Ant", &cfg.ant_id.val)},
     {CTRL_RIT, new ControlSubjInt("RIT", &cfg.rit.val)},
     {CTRL_XIT, new ControlSubjInt("XIT", &cfg.xit.val)},
@@ -255,6 +261,8 @@ static std::map<int, Control*> controls = {
     {CTRL_CW_DECODER_PEAK_BETA, new ControlSubjFloat("CW decoder peak beta", &cfg.cw_decoder_peak_beta.val, "%0.2f")},
     {CTRL_CW_DECODER_NOISE_BETA,
      new ControlSubjFloat("CW decoder noise beta", &cfg.cw_decoder_noise_beta.val, "%0.2f")},
+    {CTRL_CW_PEAK_ON, new ControlSubjOnOff("CW peak", &cfg.cw_peak_on.val)},
+    {CTRL_CW_PEAK_Q, new ControlSubjInt("CW peak Q", &cfg.cw_peak_q.val)},
     // {MFK_RTTY_RATE, Control("RTTY rate", []() { return to_str((float)params.rtty_rate / 100.0f, "%0.2f"); })},
     // {MFK_RTTY_SHIFT, Control("RTTY shift", []() { return std::to_string(params.rtty_shift); })},
     // {MFK_RTTY_CENTER, Control("RTTY center", []() { return std::to_string(params.rtty_center); })},

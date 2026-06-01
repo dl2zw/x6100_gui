@@ -49,6 +49,8 @@ cfg_ctrl_t cfg_encoder_vol_modes_default[] = {
     CTRL_FILTER_BW,
 };
 
+size_t cfg_encoder_vol_modes_default_size = ARRAY_SIZE(cfg_encoder_vol_modes_default);
+
 // All allowed modes for MFK fast access
 cfg_ctrl_t cfg_encoder_mfk_modes_default[] = {
     CTRL_SPECTRUM_FACTOR,
@@ -86,8 +88,18 @@ cfg_ctrl_t cfg_encoder_mfk_modes_default[] = {
     CTRL_RIT,
     CTRL_XIT,
 
+    CTRL_VOX_ON,
+    CTRL_VOX_GAIN,
+    CTRL_VOX_AG,
+    CTRL_VOX_DELAY,
+
+    CTRL_CW_PEAK_ON,
+    CTRL_CW_PEAK_Q,
+
     CTRL_IF_SHIFT,
 };
+
+size_t cfg_encoder_mfk_modes_default_size = ARRAY_SIZE(cfg_encoder_mfk_modes_default);
 
 
 // #define TEST_CFG
@@ -346,9 +358,17 @@ static int init_params_cfg(sqlite3 *db) {
     fill_cfg_item_int(&cfg.band_id, subject_create_int(5), "band");
     fill_cfg_item_int(&cfg.ant_id, subject_create_int(1), "ant");
     fill_cfg_item_int(&cfg.atu_enabled, subject_create_int(false), "atu");
+
+    /* Compressor */
     fill_cfg_item_int(&cfg.comp, subject_create_int(4), "comp");
     fill_cfg_item_float(&cfg.comp_threshold_offset, subject_create_float(0.0f), 0.5f, "comp_threshold_offset");
     fill_cfg_item_float(&cfg.comp_makeup_offset, subject_create_float(0.0f), 0.5f, "comp_makeup_offset");
+
+    /* VOX */
+    fill_cfg_item_int(&cfg.vox.on, subject_create_int(0), "vox_en");
+    fill_cfg_item_int(&cfg.vox.gain, subject_create_int(0), "vox_gain");
+    fill_cfg_item_int(&cfg.vox.ag, subject_create_int(0), "vox_ag");
+    fill_cfg_item_int(&cfg.vox.delay, subject_create_int(500), "vox_delay");
 
     fill_cfg_item_int(&cfg.rit, subject_create_int(0), "rit");
     fill_cfg_item_int(&cfg.xit, subject_create_int(0), "xit");
@@ -371,6 +391,8 @@ static int init_params_cfg(sqlite3 *db) {
     fill_cfg_item_int(&cfg.key_train, subject_create_int(false), "key_train");
     fill_cfg_item_int(&cfg.qsk_time, subject_create_int(100), "qsk_time");
     fill_cfg_item_float(&cfg.key_ratio, subject_create_float(3.0f), 0.1f, "key_ratio");
+    fill_cfg_item_int(&cfg.cw_peak_on, subject_create_int(false), "cw_peak_on");
+    fill_cfg_item_int(&cfg.cw_peak_q, subject_create_int(1), "cw_peak_q");
 
     /* CW decoder */
     fill_cfg_item_int(&cfg.cw_decoder, subject_create_int(true), "cw_decoder");

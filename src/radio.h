@@ -39,7 +39,6 @@ void radio_init();
 void radio_set_rx_tx_notify_fn(radio_rx_tx_change_t cb);
 void radio_set_low_power_cb(void(*cb)(bool));
 void radio_bb_reset();
-bool radio_tick();
 radio_state_t radio_get_state();
 
 /**
@@ -73,3 +72,5 @@ void radio_set_line_in(uint8_t d);
 void radio_set_line_out(uint8_t d);
 
 void radio_set_morse_key(bool on);
+
+int8_t radio_get_audio_in_lvl();
