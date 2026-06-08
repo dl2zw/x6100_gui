@@ -9,6 +9,7 @@
 
 
 #include <math.h>
+#include <complex.h>
 
 #include "util.h"
 #include "cfg/cfg.h"
@@ -16,8 +17,6 @@
 
 extern "C" {
     #include "lvgl/lvgl.h"
-    #include <pthread.h>
-    #include "audio.h"
     #include "params/params.h"
     #include "cw_decoder.h"
     #include "panel.h"
@@ -31,35 +30,21 @@ typedef struct {
     float       val;
 } fft_item_t;
 
-#define NUM_STAGES 6
-#define DECIM_FACTOR (1LL << NUM_STAGES)
-#define FFT 128
-#define MAX_CW_BW 500
+
+#define TRACK_MIN_MAX_A1 0.005f
+#define TRACK_MIN_MAX_A2 0.0005f
 
 static bool ready = false;
 
-static fft_item_t fft_items[FFT];
+static CWDetector *cw_detector;
 
-static dds_cccf  ds_dec;
-static wrms_t    wrms;
-static cbuffercf input_cbuf;
-static cbuffercf rms_cbuf;
-static wdelayf   rms_delay;
-
-static cbuffercf fft_cbuf;
-static fftplan   fft_plan;
-static float     window[FFT];
-static cfloat    fft_time[FFT];
-static cfloat    fft_freq[FFT];
-static float     audio_psd_squared[FFT];
-
-static float peak_filtered;
-static float noise_filtered;
+static float min_db = S1;
+static float max_db = S9;
+static float ema_sig_db = S1;
 static float threshold_pulse;
 static float threshold_silence;
-static float rms_db_max;
-static float rms_db_min;
 static bool  peak_on = false;
+static size_t samples_counter = 0;
 
 static int32_t key_tone = 0;
 static float   cw_decoder_peak_beta;
@@ -68,17 +53,19 @@ static float   cw_decoder_snr;
 static float   cw_decoder_snr_gist;
 static bool    cw_decoder;
 static bool    cw_tune;
-
-static pthread_mutex_t  cw_mutex = PTHREAD_MUTEX_INITIALIZER;
-
-static void dds_dec_init();
+static int32_t filter_low;
+static int32_t filter_high;
 
 static void on_key_tone_change(Subject *subj, void *user_data);
 static void on_val_float_change(Subject *subj, void *user_data);
 static void on_val_bool_change(Subject *subj, void *user_data);
+static void on_low_filter_change(Subject *subj, void *user_data);
+static void on_high_filter_change(Subject *subj, void *user_data);
+
 
 void cw_init() {
     cfg.key_tone.val->subscribe(on_key_tone_change)->notify();
+    // TODO: remove peak and noise betas
     cfg.cw_decoder_peak_beta.val->subscribe(on_val_float_change, (void*)&cw_decoder_peak_beta)->notify();
     cfg.cw_decoder_noise_beta.val->subscribe(on_val_float_change, (void*)&cw_decoder_noise_beta)->notify();
     cfg.cw_decoder_snr.val->subscribe(on_val_float_change, (void*)&cw_decoder_snr)->notify();
@@ -86,101 +73,35 @@ void cw_init() {
     cfg.cw_decoder.val->subscribe(on_val_bool_change, (void*)&cw_decoder)->notify();
     cfg.cw_tune.val->subscribe(on_val_bool_change, (void*)&cw_tune)->notify();
 
-    input_cbuf = cbuffercf_create(10000);
-    wrms = wrms_create(16, 4);
-    rms_cbuf = cbuffercf_create(4000 / 8 * 2);
-    fft_cbuf = cbuffercf_create(4000 / 8 * 2);
-
-    // Window for FFT
-    float scale = 0.0f;
-    for (size_t i = 0; i < FFT; i++) {
-        window[i] = liquid_hann(i, FFT);
-        scale += window[i] * window[i];
-    }
-    scale = 1.0f / sqrtf(scale);
-    // scale window and copy
-    for (size_t i=0; i<FFT; i++)
-        window[i] *= scale;
-
-    fft_plan = fft_create_plan(FFT, fft_time, fft_freq, LIQUID_FFT_FORWARD, 0);
-
-    rms_delay = wdelayf_create(FFT / wrms_delay(wrms));
-
-    peak_filtered = -10.0f;
-    noise_filtered = -20.0f;
+    cw_detector = new CWDetector((float)SAMPLE_RATE, 0.003f, 0.95f);
+    cw_detector->set_f0(subject_get_int(cfg.key_tone.val));
+    cfg_cur.filter.low->subscribe(on_low_filter_change)->notify();
+    cfg_cur.filter.high->subscribe(on_high_filter_change)->notify();
 
     ready = true;
 }
 
-static void dds_dec_init() {
-    pthread_mutex_lock(&cw_mutex);
-    if (ds_dec != NULL) {
-        dds_cccf_destroy(ds_dec);
-    }
-    float rel_freq = (float) key_tone / AUDIO_CAPTURE_RATE;
-    float bw = (float) MAX_CW_BW / AUDIO_CAPTURE_RATE;
-    ds_dec = dds_cccf_create(NUM_STAGES, rel_freq, bw, 60.0f);
-    pthread_mutex_unlock(&cw_mutex);
-}
-
-static int compare_fft_items(const void *p1, const void *p2) {
-    fft_item_t *i1 = (fft_item_t *) p1;
-    fft_item_t *i2 = (fft_item_t *) p2;
-
-    return (i1->val > i2->val) ? -1 : 1;
-}
-
-static void update_thresholds() {
-    float noise;
-    float sum_all = 0.0f;
-    float sum_signal = 0.0f;
-    float peak_val = -1.0f;
-    int16_t peak_pos, peak_start, peak_end;
-
-    // Find top positions
-    for (int16_t n = 0; n < FFT; n++) {
-        if (audio_psd_squared[n] > peak_val) {
-            peak_val = audio_psd_squared[n];
-            peak_pos = n;
-        }
-        sum_all += audio_psd_squared[n];
-    }
-
-    // BW for 30 WPM
-    uint16_t peak_width = 30 * 4 * FFT * DECIM_FACTOR / AUDIO_CAPTURE_RATE;
-
-    peak_start = peak_pos - peak_width / 2;
-    peak_end = peak_start + peak_width;
-    if (peak_start < 0) {
-        peak_start = 0;
-        peak_end = peak_width;
-    } else if (peak_end >= FFT) {
-        peak_end = FFT;
-        peak_start = peak_end - peak_width;
-    }
-
-    for (uint16_t i = peak_start; i < peak_end; i++) {
-        sum_signal += audio_psd_squared[i];
-    }
-    noise = sum_all - sum_signal;
-
-    if (sum_signal/noise > 1) {
-        lpf(&peak_filtered, LV_MAX(noise_filtered + cw_decoder_snr, rms_db_max), cw_decoder_peak_beta, S_MIN);
-        threshold_pulse = 0;
+static void track_min_max(float sig_db) {
+    float min_a, max_a;
+    // Fast decrease, slow increase
+    if (sig_db < min_db) {
+        min_a = TRACK_MIN_MAX_A1;
     } else {
-        lpf(&noise_filtered, LV_MIN(-3.0f, rms_db_min), cw_decoder_noise_beta, S_MIN);
-        peak_filtered -= 0.3f;
-        if (noise_filtered + cw_decoder_snr > peak_filtered) {
-            peak_filtered = noise_filtered + cw_decoder_snr;
-        }
-        // Increase threshold for no signal
-        threshold_pulse = 1;
+        min_a = TRACK_MIN_MAX_A2;
     }
-    float low = noise_filtered + cw_decoder_snr;
-    threshold_pulse += LV_MAX(low, peak_filtered  - 3.0f);
-    threshold_silence = threshold_pulse - cw_decoder_snr_gist;
-    rms_db_min = 0.0f;
-    rms_db_max = S1;
+
+    // Fast increase, slow decrease
+    if (sig_db > max_db) {
+        max_a = TRACK_MIN_MAX_A1;
+    } else {
+        max_a = TRACK_MIN_MAX_A1;
+    }
+
+    min_db+= (sig_db - min_db) * min_a;
+    max_db+= (sig_db - max_db) * max_a;
+    if (min_db + cw_decoder_snr * 2 > max_db) {
+        max_db = min_db + cw_decoder_snr * 2;
+    }
 }
 
 static void update_peak_freq(float freq) {
@@ -189,86 +110,56 @@ static void update_peak_freq(float freq) {
     }
 }
 
-static bool decode(float rms_db) {
-    if (peak_on) {
-        if (rms_db < threshold_silence) {
-            peak_on = false;
-        }
-    } else {
-        if (rms_db > threshold_pulse) {
-            peak_on = true;
-        }
-    }
-    // printf("CW_levels%f,%f,%f,%f\n", rms_db, noise_filtered, peak_filtered, threshold_pulse);
-    return peak_on;
-}
-
-
-void cw_put_audio_samples(unsigned int n, cfloat *samples) {
+void cw_put_audio_samples(unsigned int n, float *samples) {
     if (!ready) {
         return;
     }
     if ((!cw_decoder) && (!cw_tune)) {
         return;
     }
-    cfloat sample;
-    float rms_db, peak_freq;
-    size_t max_pos;
 
-    // fill input buffer
-    cbuffercf_write(input_cbuf, samples, n);
+    for (size_t i = 0; i < n; i++)
+    {
+        float avg_freq, sig_db;
+        cw_detector->put(samples[i]);
+        if (cw_detector->get_signal(&sig_db)) {
 
-    // Downsample and freq shift
-    const size_t desired_num = (1<<NUM_STAGES);
-    while (cbuffercf_size(input_cbuf) >= desired_num) {
-        unsigned int n;
-        cfloat *buf;
-        cbuffercf_read(input_cbuf, desired_num, &buf, &n);
-        pthread_mutex_lock(&cw_mutex);
-        dds_cccf_decim_execute(ds_dec, buf, &sample);
-        pthread_mutex_unlock(&cw_mutex);
-        cbuffercf_release(input_cbuf, desired_num);
-        cbuffercf_push(rms_cbuf, sample);
-        cbuffercf_push(fft_cbuf, sample);
-
-        // Process FFT
-        while (cbuffercf_size(fft_cbuf) >= FFT) {
-            for (size_t i = 0; i < FFT; i++) {
-                cbuffercf_pop(fft_cbuf, &fft_time[i]);
-                fft_time[i] *= window[i];
+            track_min_max(sig_db);
+            float ptp = max_db - min_db;
+            if (ptp < cw_decoder_snr * 2) {
+                threshold_pulse = min_db + cw_decoder_snr;
+            } else {
+                threshold_pulse = min_db + ptp * 0.5f;
             }
-            fft_execute(fft_plan);
+            threshold_pulse += cw_decoder_snr_gist * 0.5f;
+            threshold_silence = threshold_pulse - cw_decoder_snr_gist;
 
-            for (size_t i = 0; i < FFT; i++) {
-                audio_psd_squared[i] = std::real(fft_freq[i] * std::conj(fft_freq[i]));
+            ema_sig_db += (sig_db - ema_sig_db) * 0.5f;
+
+            // Detect tones/silence
+            if (peak_on) {
+                if (ema_sig_db < threshold_silence) {
+                    peak_on = false;
+                }
+            } else {
+                if (ema_sig_db > threshold_pulse) {
+                    peak_on = true;
+                }
             }
-            update_thresholds();
-
-            max_pos = argmax(audio_psd_squared, FFT);
-            // Fix fft order
-            peak_freq = (((float) (FFT - (max_pos + FFT / 2) % FFT) / FFT) - 0.5f) * ((float) AUDIO_CAPTURE_RATE / DECIM_FACTOR);
-            update_peak_freq(peak_freq);
+            cw_decoder_signal(peak_on, samples_counter * 1000.0f / SAMPLE_RATE);
+            samples_counter = 0;
         }
+        samples_counter++;
 
-        // Process RMS
-        while (cbuffercf_size(rms_cbuf)) {
-            cbuffercf_pop(rms_cbuf, &sample);
-            wrms_pushcf(wrms, sample);
-            if (wrms_ready(wrms)) {
-                rms_db = wrms_get_val(wrms);
-                rms_db_min = LV_MIN(rms_db_min, rms_db);
-                rms_db_max = LV_MAX(rms_db_max, rms_db);
-                wdelayf_push(rms_delay, rms_db);
-                wdelayf_read(rms_delay, &rms_db);
-                cw_decoder_signal(decode(rms_db), 1000.0f / AUDIO_CAPTURE_RATE * DECIM_FACTOR * wrms_delay(wrms));
-            }
+        if (cw_detector->get_freq(&avg_freq)) {
+            avg_freq = LV_CLAMP(filter_low, avg_freq, filter_high);
+            update_peak_freq(key_tone - avg_freq);
         }
     }
 }
 
 static void on_key_tone_change(Subject *subj, void *user_data) {
     key_tone = static_cast<SubjectT<int32_t>*>(subj)->get();
-    dds_dec_init();
 }
 
 static void on_val_float_change(Subject *subj, void *user_data) {
@@ -277,4 +168,120 @@ static void on_val_float_change(Subject *subj, void *user_data) {
 
 static void on_val_bool_change(Subject *subj, void *user_data) {
     *(bool*)user_data = static_cast<SubjectT<int32_t>*>(subj)->get();
+}
+
+static void on_low_filter_change(Subject *subj, void *user_data) {
+    filter_low = subject_get_int(subj);
+}
+
+static void on_high_filter_change(Subject *subj, void *user_data) {
+    filter_high = subject_get_int(subj);
+}
+
+// Prev CW detector:
+// * dds for key tone with 6 stages (689 Hz sampling)
+// 128 FFT (5.38 Hz for bin) (period - 0.186 sec)
+// get max freq pos, update
+// get pulse and silence thresholds with lpf and SNR
+//
+// rms - push and average (with not correct log)
+//
+
+/**
+ * MovingAverage
+ */
+
+template <std::size_t N> void MovingAverage<N>::put(float val) {
+    auto prev = data[w];
+    sum = sum - prev + val;
+    data[w] = val;
+    w = (w + 1) % data.size();
+}
+
+template <std::size_t N> float MovingAverage<N>::get(void) {
+    return sum / data.size();
+}
+
+/**
+ * ChunkedAverage
+ */
+
+template <std::size_t N> void ChunkedAverage<N>::put(float val) {
+    data[w] = val;
+    w = (w + 1) % data.size();
+}
+
+template <std::size_t N> bool ChunkedAverage<N>::ready(void) {
+    return w == 0;
+}
+
+template <std::size_t N> float ChunkedAverage<N>::get(void) {
+    float sum = 0.0f;
+    for (auto &i : data) {
+        sum += i;
+    }
+    return sum / data.size();
+}
+
+/**
+ * CWDetector
+ */
+
+CWDetector::CWDetector(float fs, float mu, float r): fs(fs), mu(mu), r(r) {
+    r2 = r * r;
+}
+
+void CWDetector::set_f0(int16_t tone) {
+    f0 = tone;
+    // perhaps, we should not change it
+    a = -2.0f * cosf(2.0 * M_PIf32 * f0 / fs);
+}
+
+
+void CWDetector::put(float sample) {
+    // Get notch output
+    float y_notch = sample + a * x1 + x2 - r * a * y_notch1 - r2 * y_notch2;
+    float y_peak = (r - 1) * a * x1 + (r2 - 1) * x2 - r * a * y_peak1 - r2 * y_peak2;
+
+    auto psi = x1 - r * y_notch1;
+
+    // Update k using LMS rule
+    a = a - mu * y_notch * psi;
+    a = LV_CLAMP(-1.999f, a, 1.999f); // Stability boundary
+    // Exact analytical frequency extraction
+    float w = acosf(-a / 2.0f);
+
+    // Update states
+    x2 = x1;
+    x1 = sample;
+    y_notch2 = y_notch1;
+    y_notch1 = y_notch;
+    y_peak2 = y_peak1;
+    y_peak1 = y_peak;
+
+    // Store freq
+    float freq = w * fs / (2 * M_PIf32);
+    avg_freq.put(freq);
+
+    // Store signal
+    avg_signal.put(y_peak * y_peak);
+}
+
+
+bool CWDetector::get_freq(float *freq) {
+    if (avg_freq.ready()) {
+        *freq = avg_freq.get();
+        return true;
+    } else {
+        return false;
+    }
+}
+
+bool CWDetector::get_signal(float *sig_db) {
+    if (avg_signal.ready()) {
+        float sig = avg_signal.get();
+        *sig_db = 10.0f * log10f(LV_MAX(sig, 1e-12));
+        return true;
+    }
+    return false;
 }

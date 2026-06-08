@@ -28,6 +28,7 @@
 #include "util.h"
 #include "recorder.h"
 #include "textarea_window.h"
+#include "dsp.h"
 
 #include "ft8/audio_worker.h"
 #include "ft8/cq_scheduler.h"
@@ -52,8 +53,7 @@
 #include <errno.h>
 #include <ctype.h>
 
-#define DECIM           6
-#define SAMPLE_RATE     (AUDIO_CAPTURE_RATE / DECIM)
+#define SAMPLE_RATE     (AUDIO_CAPTURE_RATE / AUDIO_DECIM)
 
 #define WIDTH           771
 
@@ -65,8 +65,6 @@
 #define FT4_WIDTH_HZ    83
 
 #define MAX_TX_START_DELAY 1.5f
-
-#define ARRAY_SIZE(arr) (sizeof(arr) / sizeof(arr[0]))
 
 typedef enum {
     RX_PROCESS,
@@ -113,7 +111,7 @@ static float base_gain_offset;
 static void construct_cb(lv_obj_t *parent);
 static void key_cb(lv_event_t * e);
 static void destruct_cb();
-static void audio_cb(unsigned int n, float complex *samples);
+static void audio_cb(unsigned int n, float *samples);
 static void rotary_cb(int32_t diff);
 
 /* audio_worker callbacks (run on worker thread). UI mutations must go
@@ -246,7 +244,7 @@ static void worker_init() {
         .ctx         = NULL,
     };
     audio_worker = audio_worker_create(
-        AUDIO_CAPTURE_RATE, DECIM,
+        SAMPLE_RATE,
         subject_get_int(cfg.ft8_protocol.val),
         filter_low, filter_high,
         &cb);
@@ -797,7 +795,7 @@ static bool keyboard_ok_cb() {
     return true;
 }
 
-static void audio_cb(unsigned int n, float complex *samples) {
+static void audio_cb(unsigned int n, float *samples) {
     if (state == RX_PROCESS) {
         audio_worker_feed(audio_worker, n, samples);
     }
@@ -931,6 +929,21 @@ static void on_message_cb(const char *text, int snr, float freq_hz, float time_s
     add_rx_text((int16_t)snr, text, (slot_info_t *)info, freq_hz, time_sec);
 }
 
+/**
+ * Helper function to update UI in main thread
+ */
+
+struct waterfall_data {
+    float *psd;
+    size_t size;
+};
+
+static void waterfall_add_data(void *data) {
+    struct waterfall_data *wf_data = (struct waterfall_data *)data;
+    lv_waterfall_add_data(waterfall, wf_data->psd, wf_data->size);
+    free(wf_data->psd);
+}
+
 static void on_psd_cb(const float *psd, uint16_t nfft, float sec_since_slot_start,
                       const slot_info_t *info, void *ctx) {
     (void)sec_since_slot_start;
@@ -938,12 +951,17 @@ static void on_psd_cb(const float *psd, uint16_t nfft, float sec_since_slot_star
     (void)ctx;
     if (!psd || !nfft) return;
 
-    uint32_t low_bin  = (uint32_t)nfft / 2u + (uint32_t)nfft * (uint32_t)filter_low  / (uint32_t)SAMPLE_RATE;
-    uint32_t high_bin = (uint32_t)nfft / 2u + (uint32_t)nfft * (uint32_t)filter_high / (uint32_t)SAMPLE_RATE;
+    uint32_t low_bin  = (uint32_t)nfft / 2u + (uint32_t)nfft * filter_low  / SAMPLE_RATE;
+    uint32_t high_bin = (uint32_t)nfft / 2u + (uint32_t)nfft * filter_high / SAMPLE_RATE;
     if (high_bin > nfft) high_bin = nfft;
     if (low_bin >= high_bin) return;
 
-    lv_waterfall_add_data(waterfall, (float *)&psd[low_bin], (int32_t)(high_bin - low_bin));
+    // Schedule waterfall update in main thread
+    struct waterfall_data wf_data;
+    wf_data.size = high_bin - low_bin;
+    wf_data.psd = (float *)calloc(sizeof(float), wf_data.size);
+    memcpy((void*)wf_data.psd, (void*)&psd[low_bin], wf_data.size * sizeof(float));
+    scheduler_put(waterfall_add_data, &wf_data, sizeof(wf_data));
 }
 
 static void on_slot_end_cb(const slot_info_t *info, void *ctx) {

@@ -9,11 +9,18 @@
 #pragma once
 
 #include "helpers.h"
+#include "dsp.h"
 
+#define SAMPLE_RATE (AUDIO_CAPTURE_RATE / AUDIO_DECIM)
 
 #ifdef __cplusplus
+
+#include <array>
+
 extern "C" {
 #endif
+
+#include "audio.h"
 
 #include <stdint.h>
 #include <stdbool.h>
@@ -21,14 +28,71 @@ extern "C" {
 
 void cw_init();
 
-void cw_put_audio_samples(unsigned int n, cfloat *samples);
-void cw_put_audio_int_samples(unsigned int n, int16_t *samples);
-
-// bool cw_change_decoder(int16_t df);
-// float cw_change_snr(int16_t df);
-// float cw_change_peak_beta(int16_t df);
-// float cw_change_noise_beta(int16_t df);
+void cw_put_audio_samples(unsigned int n, float *samples);
 
 #ifdef __cplusplus
 }
+
+/**
+ * Simple moving average class for smoothing freq, levels, etc.
+ */
+template <std::size_t N>
+class MovingAverage {
+    float sum=0.0f;
+    std::array<float, N> data {0.0f};
+    size_t w=0;
+
+public:
+    void put(float val);
+    float get(void);
+};
+
+/**
+ * Chunked average class
+ */
+template <std::size_t N>
+class ChunkedAverage {
+    std::array<float, N> data {0.0f};
+    size_t w=0;
+
+public:
+    void put(float val);
+    bool ready(void);
+    float get(void);
+};
+
+
+/**
+ * CW detector class for detecting frequency of tone, also noise and signal levels
+ */
+class CWDetector {
+    float fs;
+    float f0;
+    float mu;
+    float r;
+    float r2;
+
+    // Filter state
+    float x1       = 0.0f;
+    float x2       = 0.0f;
+    float y_notch1 = 0.0f;
+    float y_notch2 = 0.0f;
+    float y_peak1  = 0.0f;
+    float y_peak2  = 0.0f;
+    float a;
+
+    // Average instances
+    // freq averaging with 48 ms window
+    ChunkedAverage<48 * SAMPLE_RATE / 1000 > avg_freq;
+    // signal averaging with 4ms window
+    ChunkedAverage<4 * SAMPLE_RATE / 1000> avg_signal;
+
+public:
+    CWDetector(float fs, float mu, float r);
+    void set_f0(int16_t tone);
+    void put(float sample);
+    bool get_freq(float *freq);
+    bool get_signal(float *sig_db);
+};
+
 #endif
