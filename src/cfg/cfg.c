@@ -377,6 +377,9 @@ static int init_params_cfg(sqlite3 *db) {
     fill_cfg_item_int(&cfg.tx_filter_low, subject_create_int(160), "tx_filter_low");
     fill_cfg_item_int(&cfg.tx_filter_high, subject_create_int(3000), "tx_filter_high");
 
+    fill_cfg_item_int(&cfg.cessb.on, subject_create_int(0), "cessb_on");
+    fill_cfg_item_float(&cfg.cessb.power_up, subject_create_float(3.7f), 0.1f, "cessb_power_up");
+
     /* UI */
     fill_cfg_item_int(&cfg.auto_level_enabled, subject_create_int(true), "auto_level_enabled");
     fill_cfg_item_float(&cfg.auto_level_offset, subject_create_float(0.0f), 0.5f, "auto_level_offset");
@@ -399,8 +402,6 @@ static int init_params_cfg(sqlite3 *db) {
     fill_cfg_item_int(&cfg.cw_tune, subject_create_int(false), "cw_tune");
     fill_cfg_item_float(&cfg.cw_decoder_snr, subject_create_float(5.0f), 0.1f, "cw_decoder_snr_2");
     fill_cfg_item_float(&cfg.cw_decoder_snr_gist, subject_create_float(1.0f), 0.1f, "cw_decoder_snr_gist");
-    fill_cfg_item_float(&cfg.cw_decoder_peak_beta, subject_create_float(0.10f), 0.01f, "cw_decoder_peak_beta");
-    fill_cfg_item_float(&cfg.cw_decoder_noise_beta, subject_create_float(0.80f), 0.01f, "cw_decoder_noise_beta");
 
     fill_cfg_item_int(&cfg.agc_hang, subject_create_int(false), "agc_hang");
     fill_cfg_item_int(&cfg.agc_knee, subject_create_int(-60), "agc_knee");
